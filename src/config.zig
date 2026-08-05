@@ -12,6 +12,6 @@ pub fn load(a: std.mem.Allocator) !Config {
     const port = if (env("INTERVIEW_CRM_PORT")) |v| try std.fmt.parseInt(u16, v, 10) else 7331;
     if (env("INTERVIEW_CRM_DATABASE")) |v| return .{ .address = address, .port = port, .database = try a.dupeZ(u8, v) };
     const home = env("HOME") orelse return error.HomeNotSet;
-    const suffix = if (@import("builtin").os.tag == .macos) "~/Library/Application Support/InterviewCRM/interview-crm.sqlite" else ".local/share/interview-crm/interview-crm.sqlite";
+    const suffix = "data/db/interview-crm.sqlite";
     return .{ .address = address, .port = port, .database = try std.fs.path.joinZ(a, &.{ home, suffix }) };
 }
