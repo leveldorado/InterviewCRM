@@ -8,7 +8,9 @@ pub fn serve(io: std.Io, allocator: std.mem.Allocator, database: *db.Database, a
     defer listener.deinit(io);
     while (true) {
         const stream = listener.accept(io) catch continue;
-        handle(io, allocator, stream, database, address, port) catch |e| std.log.err("request failed: {s}", .{@errorName(e)});
+        var request_arena = std.heap.ArenaAllocator.init(allocator);
+        handle(io, request_arena.allocator(), stream, database, address, port) catch |e| std.log.err("request failed: {s}", .{@errorName(e)});
+        request_arena.deinit();
         stream.close(io);
     }
 }
@@ -104,14 +106,26 @@ fn parseEditId(t: []const u8) ?i64 {
     if (!std.mem.startsWith(u8, t, "/processes/") or !std.mem.endsWith(u8, t, "/edit")) return null;
     return std.fmt.parseInt(i64, t[11 .. t.len - 5], 10) catch null;
 }
-fn parseForm(a: std.mem.Allocator, body: []const u8) !processes.Input {
+pub fn parseForm(a: std.mem.Allocator, body: []const u8) !processes.Input {
     var input = processes.Input{};
     var pairs = std.mem.splitScalar(u8, body, '&');
     while (pairs.next()) |pair| {
         const eq = std.mem.indexOfScalar(u8, pair, '=') orelse continue;
         const key = pair[0..eq];
         const val = try decode(a, pair[eq + 1 ..]);
-        if (std.mem.eql(u8, key, "company_name")) input.company_name = val else if (std.mem.eql(u8, key, "position_name")) input.position_name = val else if (std.mem.eql(u8, key, "job_url")) input.job_url = val else if (std.mem.eql(u8, key, "source")) input.source = val else if (std.mem.eql(u8, key, "location")) input.location = val else if (std.mem.eql(u8, key, "work_arrangement")) input.work_arrangement = val else if (std.mem.eql(u8, key, "salary_discussed")) input.salary_discussed = true else if (std.mem.eql(u8, key, "salary_min")) input.salary_min = if (val.len == 0) null else try std.fmt.parseInt(i64, val, 10) else if (std.mem.eql(u8, key, "salary_max")) input.salary_max = if (val.len == 0) null else try std.fmt.parseInt(i64, val, 10) else if (std.mem.eql(u8, key, "currency")) {
+        if (std.mem.eql(u8, key, "company_name")) input.company_name = val else if (std.mem.eql(u8, key, "position_name")) input.position_name = val else if (std.mem.eql(u8, key, "job_url")) input.job_url = val else if (std.mem.eql(u8, key, "source")) input.source = val else if (std.mem.eql(u8, key, "location")) input.location = val else if (std.mem.eql(u8, key, "work_arrangement")) input.work_arrangement = val else if (std.mem.eql(u8, key, "salary_discussed")) input.salary_discussed = true else if (std.mem.eql(u8, key, "salary_min")) {
+            input.salary_min_text = val;
+            input.salary_min = if (val.len == 0) null else std.fmt.parseInt(i64, val, 10) catch blk: {
+                input.salary_min_invalid = true;
+                break :blk null;
+            };
+        } else if (std.mem.eql(u8, key, "salary_max")) {
+            input.salary_max_text = val;
+            input.salary_max = if (val.len == 0) null else std.fmt.parseInt(i64, val, 10) catch blk: {
+                input.salary_max_invalid = true;
+                break :blk null;
+            };
+        } else if (std.mem.eql(u8, key, "currency")) {
             for (val) |*ch| ch.* = std.ascii.toUpper(ch.*);
             input.currency = val;
         } else if (std.mem.eql(u8, key, "period")) input.period = val else if (std.mem.eql(u8, key, "salary_type")) input.salary_type = val else if (std.mem.eql(u8, key, "salary_notes")) input.salary_notes = val;
@@ -127,7 +141,8 @@ fn decode(a: std.mem.Allocator, s: []const u8) ![]u8 {
             out[n] = ' ';
             n += 1;
             i += 1;
-        } else if (s[i] == '%' and i + 2 < s.len) {
+        } else if (s[i] == '%') {
+            if (i + 2 >= s.len) return error.MalformedEncoding;
             out[n] = try std.fmt.parseInt(u8, s[i + 1 .. i + 3], 16);
             n += 1;
             i += 3;
@@ -138,4 +153,18 @@ fn decode(a: std.mem.Allocator, s: []const u8) ![]u8 {
         }
     }
     return out[0..n];
+}
+
+test "invalid salary input is preserved as validation data" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const input = try parseForm(arena.allocator(), "company_name=Acme&position_name=Engineer&salary_min=12x&salary_max=500");
+    try std.testing.expect(input.salary_min_invalid);
+    try std.testing.expectEqualStrings("12x", input.salary_min_text);
+    try std.testing.expectEqualStrings("500", input.salary_max_text);
+    try std.testing.expect(processes.validate(input).salary_min != null);
+}
+
+test "malformed percent encoding is rejected" {
+    try std.testing.expectError(error.MalformedEncoding, parseForm(std.testing.allocator, "company_name=%Z"));
 }

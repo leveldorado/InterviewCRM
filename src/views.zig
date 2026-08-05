@@ -29,7 +29,7 @@ pub fn errorPage(w: anytype, status: []const u8, message: []const u8) !void {
 }
 pub fn dashboard(w: anytype, items: []const p.Process) !void {
     try top(w, "Dashboard");
-    try w.writeAll("<div class=actions><h1>Dashboard</h1></div><div class=grid><section class=panel><h2>Today</h2><p class=empty>No appointments today.</p></section><section class=panel><h2>This week</h2><p class=empty>No appointments this week.</p></section></div><section class=panel><h2>Needs attention</h2><p class=empty>No processes currently need attention.</p></section><section class=panel><h2>Active processes</h2>");
+    try w.writeAll("<div class=actions><h1>Dashboard</h1></div><div class=grid><section class=panel><h2>Today</h2><p class=empty>Appointment dashboard queries are not implemented yet.</p></section><section class=panel><h2>This week</h2><p class=empty>Appointment dashboard queries are not implemented yet.</p></section></div><section class=panel><h2>Needs attention</h2><p class=empty>No processes currently need attention.</p></section><section class=panel><h2>Active processes</h2>");
     if (items.len == 0) try w.writeAll("<p class=empty>No active processes yet. Add one to begin tracking your search.</p>") else {
         try w.writeAll("<div class=table-wrap><table><thead><tr><th>Company</th><th>Position</th><th>Status</th><th>Salary</th><th>Source</th><th>Last updated</th></tr></thead><tbody>");
         for (items) |x| {
@@ -129,8 +129,10 @@ pub fn form(w: anytype, input: p.Input, errs: p.Errors, id: ?i64, fragment: bool
     try w.writeAll("> Salary discussed</label></div>");
     var min: [32]u8 = undefined;
     var max: [32]u8 = undefined;
-    try field(w, "salary_min", "Minimum salary (smallest currency unit)", if (input.salary_min) |v| try std.fmt.bufPrint(&min, "{d}", .{v}) else "", errs.salary_min, "number");
-    try field(w, "salary_max", "Maximum salary (smallest currency unit)", if (input.salary_max) |v| try std.fmt.bufPrint(&max, "{d}", .{v}) else "", errs.salary_max, "number");
+    const min_value = if (input.salary_min_text.len > 0) input.salary_min_text else if (input.salary_min) |v| try std.fmt.bufPrint(&min, "{d}", .{v}) else "";
+    const max_value = if (input.salary_max_text.len > 0) input.salary_max_text else if (input.salary_max) |v| try std.fmt.bufPrint(&max, "{d}", .{v}) else "";
+    try field(w, "salary_min", "Minimum salary (smallest currency unit)", min_value, errs.salary_min, "number");
+    try field(w, "salary_max", "Maximum salary (smallest currency unit)", max_value, errs.salary_max, "number");
     try field(w, "currency", "Currency code", input.currency, null, "text");
     try field(w, "period", "Salary period", input.period, null, "text");
     try field(w, "salary_type", "Salary type", input.salary_type, null, "text");

@@ -41,3 +41,22 @@ test "create update and missing lookup" {
     try processes.update(&d, id, .{ .company_name = "Acme 2", .position_name = "Engineer" });
     try std.testing.expect((try processes.get(std.testing.allocator, &d, 9999)) == null);
 }
+
+test "create rolls back when activity logging fails" {
+    var database = try memoryDb();
+    defer database.close();
+    try migrations.apply(&database);
+    try database.exec("DROP TABLE activity_log");
+    try std.testing.expectError(error.Sqlite, processes.create(&database, .{ .company_name = "Acme", .position_name = "Engineer" }));
+    try std.testing.expectEqual(@as(i64, 0), try database.scalarInt("SELECT count(*) FROM job_processes"));
+}
+
+test "update rolls back when activity logging fails" {
+    var database = try memoryDb();
+    defer database.close();
+    try migrations.apply(&database);
+    const id = try processes.create(&database, .{ .company_name = "Before", .position_name = "Engineer" });
+    try database.exec("DROP TABLE activity_log");
+    try std.testing.expectError(error.Sqlite, processes.update(&database, id, .{ .company_name = "After", .position_name = "Engineer" }));
+    try std.testing.expectEqual(@as(i64, 1), try database.scalarInt("SELECT count(*) FROM job_processes WHERE company_name='Before'"));
+}

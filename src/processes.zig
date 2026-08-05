@@ -10,7 +10,16 @@ pub const Input = struct {
     work_arrangement: []const u8 = "",
     salary_discussed: bool = false,
     salary_min: ?i64 = null,
-    salary_max: ?i64 = null, currency: []const u8 = "", period: []const u8 = "", salary_type: []const u8 = "", salary_notes: []const u8 = "" };
+    salary_max: ?i64 = null,
+    salary_min_text: []const u8 = "",
+    salary_max_text: []const u8 = "",
+    salary_min_invalid: bool = false,
+    salary_max_invalid: bool = false,
+    currency: []const u8 = "",
+    period: []const u8 = "",
+    salary_type: []const u8 = "",
+    salary_notes: []const u8 = "",
+};
 pub const Errors = struct {
     company: ?[]const u8 = null,
     position: ?[]const u8 = null,
@@ -28,6 +37,8 @@ pub fn validate(input: Input) Errors {
     if (std.mem.trim(u8, input.company_name, " \t\r\n").len == 0) e.company = "Company is required.";
     if (std.mem.trim(u8, input.position_name, " \t\r\n").len == 0) e.position = "Position is required.";
     if (input.job_url.len > 0 and !std.mem.startsWith(u8, input.job_url, "http://") and !std.mem.startsWith(u8, input.job_url, "https://")) e.url = "Use an HTTP or HTTPS URL.";
+    if (input.salary_min_invalid) e.salary_min = "Enter a whole number.";
+    if (input.salary_max_invalid) e.salary_max = "Enter a whole number.";
     if (input.salary_min) |v| if (v < 0) {
         e.salary_min = "Must not be negative.";
     };
@@ -41,6 +52,8 @@ pub fn validate(input: Input) Errors {
 const select_cols = "id,company_name,position_name,job_url,source,location,work_arrangement,salary_discussed,salary_amount_min,salary_amount_max,salary_currency,salary_period,salary_type,salary_notes,status,created_at,updated_at";
 pub fn create(database: *db.Database, input: Input) !i64 {
     if (validate(input).any()) return error.InvalidInput;
+    try database.begin();
+    errdefer database.rollback() catch {};
     var s = try database.prepare("INSERT INTO job_processes(company_name,position_name,job_url,source,location,work_arrangement,salary_discussed,salary_amount_min,salary_amount_max,salary_currency,salary_period,salary_type,salary_notes,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),datetime('now'))");
     defer s.deinit();
     try bind(&s, input);
@@ -50,10 +63,13 @@ pub fn create(database: *db.Database, input: Input) !i64 {
     defer a.deinit();
     try a.int(1, id);
     _ = try a.step();
+    try database.commit();
     return id;
 }
 pub fn update(database: *db.Database, id: i64, input: Input) !void {
     if (validate(input).any()) return error.InvalidInput;
+    try database.begin();
+    errdefer database.rollback() catch {};
     var s = try database.prepare("UPDATE job_processes SET company_name=?,position_name=?,job_url=?,source=?,location=?,work_arrangement=?,salary_discussed=?,salary_amount_min=?,salary_amount_max=?,salary_currency=?,salary_period=?,salary_type=?,salary_notes=?,updated_at=datetime('now') WHERE id=?");
     defer s.deinit();
     try bind(&s, input);
@@ -64,6 +80,7 @@ pub fn update(database: *db.Database, id: i64, input: Input) !void {
     defer a.deinit();
     try a.int(1, id);
     _ = try a.step();
+    try database.commit();
 }
 fn bind(s: *db.Statement, input: Input) !void {
     try s.text(1, input.company_name);

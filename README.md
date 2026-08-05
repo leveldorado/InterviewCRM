@@ -15,6 +15,8 @@ The application uses Zig 0.16, the system SQLite library, server-rendered semant
 
 ```sh
 zig build
+zig build fmt
+zig build check
 zig build test
 zig build run
 ```
@@ -33,13 +35,13 @@ Configuration:
 | `INTERVIEW_CRM_PORT` | `7331` |
 | `INTERVIEW_CRM_DATABASE` | Platform data path below |
 
-The default database is `~/Library/Application Support/InterviewCRM/interview-crm.sqlite` on macOS and `~/.local/share/interview-crm/interview-crm.sqlite` on Linux. Parent directories are created automatically.
+The default database is `~/Library/Application Support/InterviewCRM/interview-crm.sqlite` on macOS. Linux uses `$XDG_DATA_HOME/interview-crm/interview-crm.sqlite` when `XDG_DATA_HOME` is set, otherwise `~/.local/share/interview-crm/interview-crm.sqlite`. Parent directories are created automatically.
 
 At every startup the app enables foreign keys and WAL, sets a five-second busy timeout, and applies embedded migrations transactionally before listening. Applied versions are recorded in `schema_migrations`; a migration failure stops startup.
 
 ## Current limitations
 
-This release has no authentication and is intended only for a trusted local machine. Stage, note, and appointment editing are intentionally deferred; their schema exists, and the dashboard has appointment sections ready for the next slice. Process deletion and daemon packaging are also not included.
+This release has no authentication and is intended only for a trusted local machine. Stage, note, and appointment editing are intentionally deferred. Their schema exists, but the Today and This week dashboard queries are explicitly not implemented yet. Process deletion and daemon packaging are also not included.
 
 ## License
 
