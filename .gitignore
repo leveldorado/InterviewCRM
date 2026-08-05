@@ -1,0 +1,7 @@
+/.zig-cache/
+/zig-out/
+/data/
+/.idea/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
