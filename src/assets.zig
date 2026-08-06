@@ -12,3 +12,31 @@ comptime {
         @compileError("Vendored HTMX file does not contain request-header support");
     }
 }
+
+test "navigation indicator is positioned without changing header layout" {
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        css,
+        "header nav {\n  position: relative;",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        css,
+        "#navigation-indicator {\n  position: absolute;",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(u8, css, "left: 50%;") != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        css,
+        "transform: translateX(-50%);",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(u8, css, "visibility: hidden;") != null);
+    try std.testing.expect(std.mem.indexOf(u8, css, "opacity: 0;") != null);
+
+    // Form-local indicators retain their existing display-based behavior.
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        css,
+        ".htmx-indicator {\n  display: none;",
+    ) != null);
+}

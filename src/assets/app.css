@@ -8,6 +8,26 @@
   display: inline;
 }
 
+header nav {
+  position: relative;
+}
+
+#navigation-indicator {
+  position: absolute;
+  left: 50%;
+  display: inline;
+  visibility: hidden;
+  opacity: 0;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.htmx-request #navigation-indicator,
+#navigation-indicator.htmx-request {
+  visibility: visible;
+  opacity: 1;
+}
+
 button:disabled {
   cursor: not-allowed;
   opacity: 0.6;
