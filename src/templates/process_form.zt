@@ -49,3 +49,8 @@ pub templ ProcessFormPage(view: view_models.ProcessForm) {
         @ProcessForm(view)
     }
 }
+
+pub templ ProcessFormFragment(view: view_models.ProcessForm) {
+    <title>{view.title} · Interview CRM</title>
+    @ProcessForm(view)
+}

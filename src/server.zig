@@ -2,6 +2,7 @@ const std = @import("std");
 const assets = @import("assets.zig");
 const db = @import("database.zig");
 const processes = @import("processes.zig");
+const view_models = @import("view_models.zig");
 const views = @import("views.zig");
 
 pub const HostValidationOptions = struct {
@@ -71,6 +72,10 @@ fn handleConnection(
             .configured_port = port,
         },
     );
+    const request_kind: RequestKind = if (headers.is_htmx)
+        .htmx
+    else
+        .traditional;
     if (!headers.host_is_allowed) {
         return respondError(
             allocator,
@@ -78,12 +83,19 @@ fn handleConnection(
             .bad_request,
             "Bad request",
             "Unexpected Host header.",
+            request_kind,
         );
     }
 
     const target = try allocator.dupe(u8, request.head.target);
     switch (request.head.method) {
-        .GET => return handleGet(allocator, &request, database, target),
+        .GET => return handleGet(
+            allocator,
+            &request,
+            database,
+            target,
+            request_kind,
+        ),
         .POST => {
             var body_buffer: [4096]u8 = undefined;
             const body = try request.readerExpectNone(&body_buffer).allocRemaining(
@@ -97,12 +109,9 @@ fn handleConnection(
                     .bad_request,
                     "Bad request",
                     "Malformed form data.",
+                    request_kind,
                 );
             };
-            const request_kind: RequestKind = if (headers.is_htmx)
-                .htmx
-            else
-                .traditional;
             if (std.mem.eql(u8, target, "/processes")) {
                 return saveProcess(
                     allocator,
@@ -136,6 +145,7 @@ fn handleConnection(
         .not_found,
         "Not found",
         "The requested page does not exist.",
+        request_kind,
     );
 }
 
@@ -168,6 +178,7 @@ fn handleGet(
     request: *std.http.Server.Request,
     database: *db.Database,
     target: []const u8,
+    request_kind: RequestKind,
 ) !void {
     if (std.mem.eql(u8, target, "/static/app.css")) {
         return respondAsset(request, assets.css, "text/css; charset=utf-8");
@@ -180,16 +191,28 @@ fn handleGet(
         );
     }
     if (std.mem.eql(u8, target, "/")) {
-        return serveDashboard(allocator, request, database);
+        return serveDashboard(allocator, request, database, request_kind);
     }
     if (std.mem.eql(u8, target, "/processes/new")) {
-        return serveNewProcessForm(allocator, request);
+        return serveNewProcessForm(allocator, request, request_kind);
     }
     if (parseDetailId(target)) |process_id| {
-        return serveProcessDetail(allocator, request, database, process_id);
+        return serveProcessDetail(
+            allocator,
+            request,
+            database,
+            process_id,
+            request_kind,
+        );
     }
     if (parseEditId(target)) |process_id| {
-        return serveEditProcessForm(allocator, request, database, process_id);
+        return serveEditProcessForm(
+            allocator,
+            request,
+            database,
+            process_id,
+            request_kind,
+        );
     }
     return respondError(
         allocator,
@@ -197,6 +220,7 @@ fn handleGet(
         .not_found,
         "Not found",
         "The requested page does not exist.",
+        request_kind,
     );
 }
 
@@ -204,21 +228,32 @@ fn serveDashboard(
     allocator: std.mem.Allocator,
     request: *std.http.Server.Request,
     database: *db.Database,
+    request_kind: RequestKind,
 ) !void {
     const stored_processes = try processes.list(allocator, database);
     const view = try views.buildDashboard(allocator, stored_processes);
     var output: std.Io.Writer.Allocating = .init(allocator);
-    try views.renderDashboardPage(&output.writer, view);
+    switch (request_kind) {
+        .traditional => try views.renderDashboardPage(&output.writer, view),
+        .htmx => try views.renderDashboardFragment(&output.writer, view),
+    }
     return respondHtml(request, output.written(), .ok, &.{});
 }
 
 fn serveNewProcessForm(
     allocator: std.mem.Allocator,
     request: *std.http.Server.Request,
+    request_kind: RequestKind,
 ) !void {
     const view = try views.buildProcessForm(allocator, .{}, .{}, null);
     var output: std.Io.Writer.Allocating = .init(allocator);
-    try views.renderProcessFormPage(&output.writer, view);
+    switch (request_kind) {
+        .traditional => try views.renderProcessFormPage(&output.writer, view),
+        .htmx => try views.renderProcessFormNavigationFragment(
+            &output.writer,
+            view,
+        ),
+    }
     return respondHtml(request, output.written(), .ok, &.{});
 }
 
@@ -227,16 +262,21 @@ fn serveProcessDetail(
     request: *std.http.Server.Request,
     database: *db.Database,
     process_id: i64,
+    request_kind: RequestKind,
 ) !void {
     const process = try loadProcessOrRespond(
         allocator,
         request,
         database,
         process_id,
+        request_kind,
     ) orelse return;
     const view = try views.buildProcessDetail(allocator, process);
     var output: std.Io.Writer.Allocating = .init(allocator);
-    try views.renderProcessDetailPage(&output.writer, view);
+    switch (request_kind) {
+        .traditional => try views.renderProcessDetailPage(&output.writer, view),
+        .htmx => try views.renderProcessDetailFragment(&output.writer, view),
+    }
     return respondHtml(request, output.written(), .ok, &.{});
 }
 
@@ -245,12 +285,14 @@ fn serveEditProcessForm(
     request: *std.http.Server.Request,
     database: *db.Database,
     process_id: i64,
+    request_kind: RequestKind,
 ) !void {
     const process = try loadProcessOrRespond(
         allocator,
         request,
         database,
         process_id,
+        request_kind,
     ) orelse return;
     const view = try views.buildProcessForm(
         allocator,
@@ -259,7 +301,13 @@ fn serveEditProcessForm(
         process_id,
     );
     var output: std.Io.Writer.Allocating = .init(allocator);
-    try views.renderProcessFormPage(&output.writer, view);
+    switch (request_kind) {
+        .traditional => try views.renderProcessFormPage(&output.writer, view),
+        .htmx => try views.renderProcessFormNavigationFragment(
+            &output.writer,
+            view,
+        ),
+    }
     return respondHtml(request, output.written(), .ok, &.{});
 }
 
@@ -268,6 +316,7 @@ fn loadProcessOrRespond(
     request: *std.http.Server.Request,
     database: *db.Database,
     process_id: i64,
+    request_kind: RequestKind,
 ) !?processes.Process {
     const process = try processes.get(allocator, database, process_id);
     if (process) |found| return found;
@@ -277,6 +326,7 @@ fn loadProcessOrRespond(
         .not_found,
         "Not found",
         "That job process does not exist.",
+        request_kind,
     );
     return null;
 }
@@ -308,6 +358,7 @@ fn saveProcess(
                     .not_found,
                     "Not found",
                     "That job process does not exist.",
+                    options.request_kind,
                 );
             }
             return err;
@@ -340,7 +391,10 @@ fn respondToValidationFailure(
     var output: std.Io.Writer.Allocating = .init(allocator);
     switch (options.request_kind) {
         .traditional => try views.renderProcessFormPage(&output.writer, view),
-        .htmx => try views.renderProcessFormFragment(&output.writer, view),
+        .htmx => try views.renderProcessFormValidationFragment(
+            &output.writer,
+            view,
+        ),
     }
     return respondHtml(
         request,
@@ -433,12 +487,17 @@ fn respondError(
     status: std.http.Status,
     title: []const u8,
     message: []const u8,
+    request_kind: RequestKind,
 ) !void {
     var output: std.Io.Writer.Allocating = .init(allocator);
-    try views.renderErrorPage(&output.writer, .{
+    const view = view_models.ErrorPage{
         .title = title,
         .message = message,
-    });
+    };
+    switch (request_kind) {
+        .traditional => try views.renderErrorPage(&output.writer, view),
+        .htmx => try views.renderErrorFragment(&output.writer, view),
+    }
     return respondHtml(request, output.written(), status, &.{});
 }
 

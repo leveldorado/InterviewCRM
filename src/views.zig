@@ -152,6 +152,13 @@ pub fn renderDashboardPage(
     try dashboard_template.DashboardPage.render(.{view}, writer);
 }
 
+pub fn renderDashboardFragment(
+    writer: *std.Io.Writer,
+    view: view_models.Dashboard,
+) !void {
+    try dashboard_template.DashboardFragment.render(.{view}, writer);
+}
+
 pub fn renderProcessFormPage(
     writer: *std.Io.Writer,
     view: view_models.ProcessForm,
@@ -159,7 +166,14 @@ pub fn renderProcessFormPage(
     try process_form_template.ProcessFormPage.render(.{view}, writer);
 }
 
-pub fn renderProcessFormFragment(
+pub fn renderProcessFormNavigationFragment(
+    writer: *std.Io.Writer,
+    view: view_models.ProcessForm,
+) !void {
+    try process_form_template.ProcessFormFragment.render(.{view}, writer);
+}
+
+pub fn renderProcessFormValidationFragment(
     writer: *std.Io.Writer,
     view: view_models.ProcessForm,
 ) !void {
@@ -187,6 +201,13 @@ pub fn renderErrorPage(
     try error_page_template.ErrorPage.render(.{view}, writer);
 }
 
+pub fn renderErrorFragment(
+    writer: *std.Io.Writer,
+    view: view_models.ErrorPage,
+) !void {
+    try error_page_template.ErrorFragment.render(.{view}, writer);
+}
+
 test "layout and form contain HTMX behavior and escape user input" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -204,6 +225,18 @@ test "layout and form contain HTMX behavior and escape user input" {
     try renderProcessFormPage(&output.writer, view);
     const html = output.written();
     try std.testing.expect(std.mem.indexOf(u8, html, "id=\"main-content\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, html, "hx-boost=\"true\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, html, "hx-target=\"#main-content\"") != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        html,
+        "hx-swap=\"innerHTML show:window:top\"",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        html,
+        "id=\"navigation-indicator\"",
+    ) != null);
     try std.testing.expect(std.mem.indexOf(u8, html, "/static/app.css") != null);
     try std.testing.expect(std.mem.indexOf(u8, html, "/static/vendor/htmx.min.js") != null);
     try std.testing.expect(std.mem.indexOf(u8, html, "&lt;script&gt;") != null);
@@ -211,6 +244,50 @@ test "layout and form contain HTMX behavior and escape user input" {
     try std.testing.expect(std.mem.indexOf(u8, html, "hx-post=\"/processes\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, html, "value=\"12x\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, html, "&quot;422&quot;") != null);
+}
+
+test "dashboard page and navigation fragment preserve links and title" {
+    const summaries = [_]view_models.ProcessSummary{.{
+        .detail_url = "/processes/9",
+        .company_name = "Acme",
+        .position_name = "Engineer",
+        .status = "active",
+        .salary_display = "Not discussed",
+        .source = "Referral",
+        .updated_at = "today",
+    }};
+    const view = view_models.Dashboard{ .processes = &summaries };
+    var page_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer page_output.deinit();
+    try renderDashboardPage(&page_output.writer, view);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        page_output.written(),
+        "<!DOCTYPE html>",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        page_output.written(),
+        "href=\"/processes/9\"",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        page_output.written(),
+        "href=\"/processes/new\"",
+    ) != null);
+
+    var fragment_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer fragment_output.deinit();
+    try renderDashboardFragment(&fragment_output.writer, view);
+    const fragment = fragment_output.written();
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        fragment,
+        "<title>Dashboard · Interview CRM</title>",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(u8, fragment, "<h1>Dashboard</h1>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, fragment, "<!DOCTYPE html>") == null);
+    try std.testing.expect(std.mem.indexOf(u8, fragment, "<main") == null);
 }
 
 test "edit form uses one prepared action for HTML and HTMX" {
@@ -224,7 +301,7 @@ test "edit form uses one prepared action for HTML and HTMX" {
         .{},
         42,
     );
-    try renderProcessFormFragment(&output.writer, view);
+    try renderProcessFormValidationFragment(&output.writer, view);
     const html = output.written();
     try std.testing.expect(std.mem.indexOf(
         u8,
@@ -238,6 +315,21 @@ test "edit form uses one prepared action for HTML and HTMX" {
     ) != null);
     try std.testing.expect(std.mem.indexOf(u8, html, "<!DOCTYPE html>") == null);
     try std.testing.expect(std.mem.indexOf(u8, html, "<html") == null);
+    try std.testing.expect(std.mem.indexOf(u8, html, "href=\"/processes/42\"") != null);
+
+    var navigation_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer navigation_output.deinit();
+    try renderProcessFormNavigationFragment(&navigation_output.writer, view);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        navigation_output.written(),
+        "<title>Edit process · Interview CRM</title>",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        navigation_output.written(),
+        "<html",
+    ) == null);
 }
 
 test "full and fragment process views remain structurally distinct" {
@@ -254,6 +346,7 @@ test "full and fragment process views remain structurally distinct" {
             .currency = "EUR",
             .period = "month",
             .salary_type = "gross",
+            .job_url = "https://example.com/job?a=1&b=2",
         },
         .status = "active",
         .created_at = "today",
@@ -278,4 +371,41 @@ test "full and fragment process views remain structurally distinct" {
         output.written(),
         "<!DOCTYPE html>",
     ) == null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        output.written(),
+        "hx-boost=\"false\"",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        output.written(),
+        "rel=\"noopener noreferrer\"",
+    ) != null);
+}
+
+test "error page and fragment are distinct navigable representations" {
+    const view = view_models.ErrorPage{
+        .title = "Not found",
+        .message = "Missing",
+    };
+    var page_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer page_output.deinit();
+    try renderErrorPage(&page_output.writer, view);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        page_output.written(),
+        "<!DOCTYPE html>",
+    ) != null);
+
+    var fragment_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer fragment_output.deinit();
+    try renderErrorFragment(&fragment_output.writer, view);
+    const fragment = fragment_output.written();
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        fragment,
+        "<title>Not found · Interview CRM</title>",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(u8, fragment, "href=\"/\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, fragment, "<html") == null);
 }

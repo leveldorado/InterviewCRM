@@ -23,7 +23,7 @@ pub templ ProcessDetailContent(view: view_models.ProcessDetail) {
             <dt>Job URL</dt>
             <dd>
                 if (view.job_url) |job_url| {
-                    <a rel="noopener" href={job_url}>{job_url}</a>
+                    <a rel="noopener noreferrer" href={job_url} hx-boost="false">{job_url}</a>
                 } else {
                     —
                 }

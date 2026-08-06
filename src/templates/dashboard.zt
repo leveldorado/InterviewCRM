@@ -53,3 +53,8 @@ pub templ DashboardPage(view: view_models.Dashboard) {
         @DashboardContent(view)
     }
 }
+
+pub templ DashboardFragment(view: view_models.Dashboard) {
+    <title>Dashboard · Interview CRM</title>
+    @DashboardContent(view)
+}
