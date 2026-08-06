@@ -2,6 +2,16 @@ const std = @import("std");
 const p = @import("processes.zig");
 pub const css = @embedFile("assets/app.css");
 pub const htmx = @embedFile("assets/vendor/htmx.min.js");
+
+comptime {
+    @setEvalBranchQuota(100_000);
+    if (htmx.len < 40_000) {
+        @compileError("Vendored HTMX file appears incomplete");
+    }
+    if (std.mem.indexOf(u8, htmx, "HX-Request") == null) {
+        @compileError("Vendored HTMX file does not contain request-header support");
+    }
+}
 pub fn escape(w: anytype, s: []const u8) !void {
     for (s) |ch| switch (ch) {
         '&' => try w.writeAll("&amp;"),
@@ -29,7 +39,7 @@ pub fn errorPage(w: anytype, status: []const u8, message: []const u8) !void {
 }
 pub fn dashboard(w: anytype, items: []const p.Process) !void {
     try top(w, "Dashboard");
-    try w.writeAll("<div class=actions><h1>Dashboard</h1></div><div class=grid><section class=panel><h2>Today</h2><p class=empty>Appointment dashboard queries are not implemented yet.</p></section><section class=panel><h2>This week</h2><p class=empty>Appointment dashboard queries are not implemented yet.</p></section></div><section class=panel><h2>Needs attention</h2><p class=empty>No processes currently need attention.</p></section><section class=panel><h2>Active processes</h2>");
+    try w.writeAll("<div class=actions><h1>Dashboard</h1></div><div class=grid><section class=panel><h2>Today</h2><p class=empty>Today appointment tracking will be added in a later release.</p></section><section class=panel><h2>This week</h2><p class=empty>This-week appointment tracking will be added in a later release.</p></section></div><section class=panel><h2>Needs attention</h2><p class=empty>Needs-attention tracking will be added in a later release.</p></section><section class=panel><h2>Active processes</h2>");
     if (items.len == 0) try w.writeAll("<p class=empty>No active processes yet. Add one to begin tracking your search.</p>") else {
         try w.writeAll("<div class=table-wrap><table><thead><tr><th>Company</th><th>Position</th><th>Status</th><th>Salary</th><th>Source</th><th>Last updated</th></tr></thead><tbody>");
         for (items) |x| {
@@ -52,26 +62,58 @@ pub fn dashboard(w: anytype, items: []const p.Process) !void {
     try w.writeAll("</section>");
     try bottom(w);
 }
-fn salary(w: anytype, i: p.Input) !void {
-    if (!i.salary_discussed) return w.writeAll("Not discussed");
-    if (i.salary_min == null and i.salary_max == null) return w.writeAll("Discussed");
-    if (i.currency.len > 0) {
-        try escape(w, i.currency);
+pub const SalaryDisplay = struct {
+    discussed: bool,
+    minimum: ?i64,
+    maximum: ?i64,
+    currency: ?[]const u8,
+    period: ?[]const u8,
+    salary_type: ?[]const u8,
+};
+
+fn salary(w: anytype, input: p.Input) !void {
+    return renderSalary(w, .{
+        .discussed = input.salary_discussed,
+        .minimum = input.salary_min,
+        .maximum = input.salary_max,
+        .currency = nonEmpty(input.currency),
+        .period = nonEmpty(input.period),
+        .salary_type = nonEmpty(input.salary_type),
+    });
+}
+
+pub fn renderSalary(w: anytype, display: SalaryDisplay) !void {
+    if (!display.discussed) return w.writeAll("Not discussed");
+    if (display.minimum == null and display.maximum == null) {
+        return w.writeAll("Salary discussed; range not disclosed");
+    }
+    if (display.currency) |currency| {
+        try escape(w, currency);
         try w.writeByte(' ');
     }
-    if (i.salary_min) |v| try money(w, v);
-    if (i.salary_min != null and i.salary_max != null) try w.writeAll("–");
-    if (i.salary_max) |v| try money(w, v);
-    if (i.period.len > 0) {
-        try w.writeAll(" / ");
-        try escape(w, i.period);
+    if (display.minimum) |minimum| try money(w, minimum);
+    if (display.minimum != null and display.maximum != null) try w.writeAll("–");
+    if (display.maximum) |maximum| try money(w, maximum);
+    if (display.period) |period| {
+        try w.writeAll(" per ");
+        try escape(w, period);
     }
+    try w.writeAll(", ");
+    try escape(w, display.salary_type orelse "unknown type");
 }
-fn money(w: anytype, v: i64) !void {
-    const cents = @mod(v, 100);
-    try w.print("{d}.", .{@divTrunc(v, 100)});
-    if (cents < 10) try w.writeByte('0');
-    try w.print("{d}", .{cents});
+
+fn nonEmpty(value: []const u8) ?[]const u8 {
+    return if (value.len == 0) null else value;
+}
+
+fn money(w: anytype, value: i64) !void {
+    var buffer: [32]u8 = undefined;
+    const digits = try std.fmt.bufPrint(&buffer, "{d}", .{value});
+    for (digits, 0..) |digit, index| {
+        const remaining = digits.len - index;
+        try w.writeByte(digit);
+        if (remaining > 1 and (remaining - 1) % 3 == 0) try w.writeByte(',');
+    }
 }
 pub fn detail(w: anytype, x: p.Process) !void {
     try top(w, x.input.company_name);
@@ -80,10 +122,22 @@ pub fn detail(w: anytype, x: p.Process) !void {
     try w.writeAll("</h1><h2>");
     try escape(w, x.input.position_name);
     try w.writeAll("</h2><dl class=facts>");
-    const labels = [_]struct { []const u8, []const u8 }{ .{ "Status", x.status }, .{ "Source", x.input.source }, .{ "Location", x.input.location }, .{ "Work arrangement", x.input.work_arrangement }, .{ "Salary notes", x.input.salary_notes }, .{ "Created", x.created_at }, .{ "Last updated", x.updated_at } };
+    const LabelValue = struct {
+        label: []const u8,
+        value: []const u8,
+    };
+    const labels = [_]LabelValue{
+        .{ .label = "Status", .value = x.status },
+        .{ .label = "Source", .value = x.input.source },
+        .{ .label = "Location", .value = x.input.location },
+        .{ .label = "Work arrangement", .value = x.input.work_arrangement },
+        .{ .label = "Salary notes", .value = x.input.salary_notes },
+        .{ .label = "Created", .value = x.created_at },
+        .{ .label = "Last updated", .value = x.updated_at },
+    };
     for (labels) |v| {
-        try w.print("<dt>{s}</dt><dd>", .{v[0]});
-        try escape(w, if (v[1].len > 0) v[1] else "—");
+        try w.print("<dt>{s}</dt><dd>", .{v.label});
+        try escape(w, if (v.value.len > 0) v.value else "—");
         try w.writeAll("</dd>");
     }
     try w.writeAll("<dt>Salary</dt><dd>");
@@ -97,7 +151,12 @@ pub fn detail(w: anytype, x: p.Process) !void {
         try w.writeAll("</a>");
     } else try w.writeAll("—");
     try w.writeAll("</dd></dl></section>");
-    for ([_][]const u8{ "Stages", "Notes", "Appointments" }) |name| try w.print("<section class=panel><h2>{s}</h2><p class=empty>No {s} yet.</p></section>", .{ name, name });
+    for ([_][]const u8{ "Stage timeline", "Notes", "Appointment list" }) |name| {
+        try w.print(
+            "<section class=panel><h2>{s}</h2><p class=empty>{s} will be added in a later release.</p></section>",
+            .{ name, name },
+        );
+    }
     try bottom(w);
 }
 fn field(w: anytype, name: []const u8, label: []const u8, value: []const u8, err: ?[]const u8, kind: []const u8) !void {
@@ -107,6 +166,30 @@ fn field(w: anytype, name: []const u8, label: []const u8, value: []const u8, err
     if (err) |e| {
         try w.print(" aria-describedby={s}-error class=field-error><div id={s}-error class=error>", .{ name, name });
         try escape(w, e);
+        try w.writeAll("</div>");
+    } else try w.writeByte('>');
+    try w.writeAll("</div>");
+}
+
+fn salaryField(
+    w: anytype,
+    name: []const u8,
+    label: []const u8,
+    value: []const u8,
+    validation_error: ?[]const u8,
+) !void {
+    try w.print(
+        "<div class=field><label for={s}>{s}</label><input id={s} name={s} type=text inputmode=numeric value=\"",
+        .{ name, label, name, name },
+    );
+    try escape(w, value);
+    try w.writeByte('"');
+    if (validation_error) |message| {
+        try w.print(
+            " aria-describedby={s}-error class=field-error><div id={s}-error class=error>",
+            .{ name, name },
+        );
+        try escape(w, message);
         try w.writeAll("</div>");
     } else try w.writeByte('>');
     try w.writeAll("</div>");
@@ -131,8 +214,8 @@ pub fn form(w: anytype, input: p.Input, errs: p.Errors, id: ?i64, fragment: bool
     var max: [32]u8 = undefined;
     const min_value = if (input.salary_min_text.len > 0) input.salary_min_text else if (input.salary_min) |v| try std.fmt.bufPrint(&min, "{d}", .{v}) else "";
     const max_value = if (input.salary_max_text.len > 0) input.salary_max_text else if (input.salary_max) |v| try std.fmt.bufPrint(&max, "{d}", .{v}) else "";
-    try field(w, "salary_min", "Minimum salary (smallest currency unit)", min_value, errs.salary_min, "number");
-    try field(w, "salary_max", "Maximum salary (smallest currency unit)", max_value, errs.salary_max, "number");
+    try salaryField(w, "salary_min", "Minimum salary", min_value, errs.salary_min);
+    try salaryField(w, "salary_max", "Maximum salary", max_value, errs.salary_max);
     try field(w, "currency", "Currency code", input.currency, null, "text");
     try field(w, "period", "Salary period", input.period, null, "text");
     try field(w, "salary_type", "Salary type", input.salary_type, null, "text");
@@ -146,4 +229,43 @@ test "escapes HTML" {
     defer out.deinit();
     try escape(&out.writer, "<script>&\"");
     try std.testing.expectEqualStrings("&lt;script&gt;&amp;&quot;", out.written());
+}
+
+test "salary display includes complete stored information without empty separators" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try renderSalary(&output.writer, .{
+        .discussed = true,
+        .minimum = 5500,
+        .maximum = 6500,
+        .currency = "EUR",
+        .period = "month",
+        .salary_type = "gross",
+    });
+    try std.testing.expectEqualStrings(
+        "EUR 5,500–6,500 per month, gross",
+        output.written(),
+    );
+}
+
+test "salary form preserves invalid raw text in text inputs" {
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try form(&output.writer, .{
+        .salary_min_text = "12x",
+        .salary_max_text = "wrong",
+    }, .{
+        .salary_min = "Enter a whole number.",
+        .salary_max = "Enter a whole number.",
+    }, null, true);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        output.written(),
+        "name=salary_min type=text inputmode=numeric value=\"12x\"",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        output.written(),
+        "name=salary_max type=text inputmode=numeric value=\"wrong\"",
+    ) != null);
 }

@@ -2,19 +2,44 @@ const std = @import("std");
 const db = @import("database.zig");
 const processes = @import("processes.zig");
 const views = @import("views.zig");
-pub fn serve(io: std.Io, allocator: std.mem.Allocator, database: *db.Database, address: []const u8, port: u16) !void {
+pub const HostValidationOptions = struct {
+    configured_address: []const u8,
+    configured_port: u16,
+};
+
+pub fn serve(io: std.Io, database: *db.Database, address: []const u8, port: u16) !void {
     var ip = try std.Io.net.IpAddress.parse(address, port);
     var listener = try ip.listen(io, .{ .reuse_address = true });
     defer listener.deinit(io);
     while (true) {
         const stream = listener.accept(io) catch continue;
-        var request_arena = std.heap.ArenaAllocator.init(allocator);
-        handle(io, request_arena.allocator(), stream, database, address, port) catch |e| std.log.err("request failed: {s}", .{@errorName(e)});
-        request_arena.deinit();
-        stream.close(io);
+        defer stream.close(io);
+
+        // The page allocator returns request-arena slabs to the OS at deinit.
+        var request_arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer request_arena.deinit();
+        const request_allocator = request_arena.allocator();
+
+        handle(
+            io,
+            request_allocator,
+            stream,
+            database,
+            address,
+            port,
+        ) catch |err| {
+            std.log.err("request failed: {s}", .{@errorName(err)});
+        };
     }
 }
-fn handle(io: std.Io, a: std.mem.Allocator, stream: std.Io.net.Stream, database: *db.Database, address: []const u8, port: u16) !void {
+fn handle(
+    io: std.Io,
+    allocator: std.mem.Allocator,
+    stream: std.Io.net.Stream,
+    database: *db.Database,
+    address: []const u8,
+    port: u16,
+) !void {
     var rb: [16384]u8 = undefined;
     var wb: [16384]u8 = undefined;
     var r = stream.reader(io, &rb);
@@ -24,26 +49,56 @@ fn handle(io: std.Io, a: std.mem.Allocator, stream: std.Io.net.Stream, database:
     var hx = false;
     var host_ok = false;
     var it = req.iterateHeaders();
-    var expected: [256]u8 = undefined;
-    const configured = try std.fmt.bufPrint(&expected, "{s}:{d}", .{ address, port });
     while (it.next()) |h| {
         if (std.ascii.eqlIgnoreCase(h.name, "hx-request") and std.ascii.eqlIgnoreCase(h.value, "true")) hx = true;
         if (std.ascii.eqlIgnoreCase(h.name, "host")) {
-            host_ok = std.mem.eql(u8, h.value, configured) or std.mem.eql(u8, h.value, "localhost") or std.mem.eql(u8, h.value, "127.0.0.1") or std.mem.startsWith(u8, h.value, "localhost:") or std.mem.startsWith(u8, h.value, "127.0.0.1:");
+            host_ok = isAllowedHost(h.value, .{
+                .configured_address = address,
+                .configured_port = port,
+            });
         }
     }
-    if (!host_ok) return respondError(a, &req, .bad_request, "Bad request", "Unexpected Host header.");
-    const target = try a.dupe(u8, req.head.target);
+    if (!host_ok) return respondError(allocator, &req, .bad_request, "Bad request", "Unexpected Host header.");
+    const target = try allocator.dupe(u8, req.head.target);
     const method = req.head.method;
-    if (method == .GET) return get(a, &req, database, target);
+    if (method == .GET) return get(allocator, &req, database, target);
     if (method == .POST) {
         var body_buf: [4096]u8 = undefined;
-        const body = try req.readerExpectNone(&body_buf).allocRemaining(a, .limited(65536));
-        const input = parseForm(a, body) catch return respondError(a, &req, .bad_request, "Bad request", "Malformed form data.");
-        if (std.mem.eql(u8, target, "/processes")) return save(a, &req, database, input, null, hx);
-        if (parseEditId(target)) |id| return save(a, &req, database, input, id, hx);
+        const body = try req.readerExpectNone(&body_buf).allocRemaining(allocator, .limited(65536));
+        const input = parseForm(allocator, body) catch return respondError(allocator, &req, .bad_request, "Bad request", "Malformed form data.");
+        if (std.mem.eql(u8, target, "/processes")) return save(allocator, &req, database, input, null, hx);
+        if (parseEditId(target)) |id| return save(allocator, &req, database, input, id, hx);
     }
-    return respondError(a, &req, .not_found, "Not found", "The requested page does not exist.");
+    return respondError(allocator, &req, .not_found, "Not found", "The requested page does not exist.");
+}
+
+pub fn isAllowedHost(host: []const u8, options: HostValidationOptions) bool {
+    if (host.len == 0) return false;
+    if (std.mem.eql(u8, host, "localhost") or
+        std.mem.eql(u8, host, "127.0.0.1") or
+        std.mem.eql(u8, host, options.configured_address)) return true;
+
+    var expected_buffer: [512]u8 = undefined;
+    const localhost_with_port = std.fmt.bufPrint(
+        &expected_buffer,
+        "localhost:{d}",
+        .{options.configured_port},
+    ) catch return false;
+    if (std.mem.eql(u8, host, localhost_with_port)) return true;
+
+    const loopback_with_port = std.fmt.bufPrint(
+        &expected_buffer,
+        "127.0.0.1:{d}",
+        .{options.configured_port},
+    ) catch return false;
+    if (std.mem.eql(u8, host, loopback_with_port)) return true;
+
+    const configured_with_port = std.fmt.bufPrint(
+        &expected_buffer,
+        "{s}:{d}",
+        .{ options.configured_address, options.configured_port },
+    ) catch return false;
+    return std.mem.eql(u8, host, configured_with_port);
 }
 fn get(a: std.mem.Allocator, req: *std.http.Server.Request, database: *db.Database, target: []const u8) !void {
     if (std.mem.eql(u8, target, "/static/app.css")) return req.respond(views.css, .{ .extra_headers = &.{.{ .name = "content-type", .value = "text/css; charset=utf-8" }}, .keep_alive = false });
@@ -73,15 +128,27 @@ fn get(a: std.mem.Allocator, req: *std.http.Server.Request, database: *db.Databa
     }
     return respondError(a, req, .not_found, "Not found", "The requested page does not exist.");
 }
-fn save(a: std.mem.Allocator, req: *std.http.Server.Request, database: *db.Database, input: processes.Input, id: ?i64, hx: bool) !void {
+fn save(
+    allocator: std.mem.Allocator,
+    req: *std.http.Server.Request,
+    database: *db.Database,
+    input: processes.Input,
+    id: ?i64,
+    hx: bool,
+) !void {
     const errs = processes.validate(input);
     if (errs.any()) {
-        var out: std.Io.Writer.Allocating = .init(a);
+        var out: std.Io.Writer.Allocating = .init(allocator);
         try views.form(&out.writer, input, errs, id, hx);
         return html(req, out.written(), .unprocessable_entity);
     }
     const saved = if (id) |v| blk: {
-        processes.update(database, v, input) catch |e| if (e == error.NotFound) return respondError(a, req, .not_found, "Not found", "That job process does not exist.") else return e;
+        processes.update(database, v, input) catch |err| {
+            if (err == error.NotFound) {
+                return respondError(allocator, req, .not_found, "Not found", "That job process does not exist.");
+            }
+            return err;
+        };
         break :blk v;
     } else try processes.create(database, input);
     var location: [64]u8 = undefined;
@@ -163,6 +230,61 @@ test "invalid salary input is preserved as validation data" {
     try std.testing.expectEqualStrings("12x", input.salary_min_text);
     try std.testing.expectEqualStrings("500", input.salary_max_text);
     try std.testing.expect(processes.validate(input).salary_min != null);
+}
+
+test "minimum and maximum invalid salary values are preserved independently" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const input = try parseForm(
+        arena.allocator(),
+        "company_name=Acme&position_name=Engineer&salary_min=12x&salary_max=wrong",
+    );
+    const validation_errors = processes.validate(input);
+    try std.testing.expectEqualStrings("12x", input.salary_min_text);
+    try std.testing.expectEqualStrings("wrong", input.salary_max_text);
+    try std.testing.expect(validation_errors.salary_min != null);
+    try std.testing.expect(validation_errors.salary_max != null);
+}
+
+test "exact local and configured hosts are allowed" {
+    const options = HostValidationOptions{
+        .configured_address = "dev.local",
+        .configured_port = 8123,
+    };
+    try std.testing.expect(isAllowedHost("localhost", options));
+    try std.testing.expect(isAllowedHost("localhost:8123", options));
+    try std.testing.expect(isAllowedHost("127.0.0.1", options));
+    try std.testing.expect(isAllowedHost("127.0.0.1:8123", options));
+    try std.testing.expect(isAllowedHost("dev.local", options));
+    try std.testing.expect(isAllowedHost("dev.local:8123", options));
+}
+
+test "malformed injected and wrong-port hosts are rejected" {
+    const options = HostValidationOptions{
+        .configured_address = "127.0.0.1",
+        .configured_port = 7331,
+    };
+    for ([_][]const u8{
+        "",
+        "attacker.localhost",
+        "localhost:7332",
+        "localhost:7331.example.com",
+        "localhost:7331@attacker.example",
+        "127.0.0.1:7331.attacker",
+        "127.0.0.1.example.com",
+    }) |host| {
+        try std.testing.expect(!isAllowedHost(host, options));
+    }
+}
+
+test "missing Host is rejected by request validation state" {
+    var host_ok = false;
+    try std.testing.expect(!host_ok);
+    host_ok = isAllowedHost("localhost", .{
+        .configured_address = "127.0.0.1",
+        .configured_port = 7331,
+    });
+    try std.testing.expect(host_ok);
 }
 
 test "malformed percent encoding is rejected" {

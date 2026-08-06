@@ -62,7 +62,10 @@ pub const Database = struct {
             self.logError("prepare statement");
             return error.Sqlite;
         }
-        return .{ .handle = st.?, .database = self };
+        return .{
+            .handle = st.?,
+            .database = self,
+        };
     }
     fn logError(self: *Database, operation: []const u8) void {
         if (builtin.is_test) return;

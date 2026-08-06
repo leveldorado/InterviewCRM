@@ -30,7 +30,13 @@ pub const Errors = struct {
         return e.company != null or e.position != null or e.url != null or e.salary_min != null or e.salary_max != null;
     }
 };
-pub const Process = struct { id: i64, input: Input, status: []const u8, created_at: []const u8, updated_at: []const u8 };
+pub const Process = struct {
+    id: i64,
+    input: Input,
+    status: []const u8,
+    created_at: []const u8,
+    updated_at: []const u8,
+};
 
 pub fn validate(input: Input) Errors {
     var e = Errors{};
@@ -45,7 +51,12 @@ pub fn validate(input: Input) Errors {
     if (input.salary_max) |v| if (v < 0) {
         e.salary_max = "Must not be negative.";
     };
-    if (input.salary_min != null and input.salary_max != null and input.salary_min.? > input.salary_max.?) e.salary_max = "Maximum must be at least the minimum.";
+    const has_salary_range = input.salary_min != null and input.salary_max != null;
+    const salary_range_is_inverted = has_salary_range and
+        input.salary_min.? > input.salary_max.?;
+    if (salary_range_is_inverted) {
+        e.salary_max = "Maximum must be at least the minimum.";
+    }
     return e;
 }
 
@@ -114,12 +125,66 @@ pub fn list(allocator: std.mem.Allocator, database: *db.Database) ![]Process {
     while (try s.step()) try out.append(allocator, try read(allocator, &s));
     return out.toOwnedSlice(allocator);
 }
-fn read(a: std.mem.Allocator, s: *db.Statement) !Process {
-    return .{ .id = s.colInt(0), .input = .{ .company_name = try a.dupe(u8, s.colText(1)), .position_name = try a.dupe(u8, s.colText(2)), .job_url = try a.dupe(u8, s.colText(3)), .source = try a.dupe(u8, s.colText(4)), .location = try a.dupe(u8, s.colText(5)), .work_arrangement = try a.dupe(u8, s.colText(6)), .salary_discussed = s.colInt(7) == 1, .salary_min = s.colOptionalInt(8), .salary_max = s.colOptionalInt(9), .currency = try a.dupe(u8, s.colText(10)), .period = try a.dupe(u8, s.colText(11)), .salary_type = try a.dupe(u8, s.colText(12)), .salary_notes = try a.dupe(u8, s.colText(13)) }, .status = try a.dupe(u8, s.colText(14)), .created_at = try a.dupe(u8, s.colText(15)), .updated_at = try a.dupe(u8, s.colText(16)) };
+fn read(allocator: std.mem.Allocator, statement: *db.Statement) !Process {
+    return .{
+        .id = statement.colInt(0),
+        .input = .{
+            .company_name = try allocator.dupe(u8, statement.colText(1)),
+            .position_name = try allocator.dupe(u8, statement.colText(2)),
+            .job_url = try allocator.dupe(u8, statement.colText(3)),
+            .source = try allocator.dupe(u8, statement.colText(4)),
+            .location = try allocator.dupe(u8, statement.colText(5)),
+            .work_arrangement = try allocator.dupe(u8, statement.colText(6)),
+            .salary_discussed = statement.colInt(7) == 1,
+            .salary_min = statement.colOptionalInt(8),
+            .salary_max = statement.colOptionalInt(9),
+            .currency = try allocator.dupe(u8, statement.colText(10)),
+            .period = try allocator.dupe(u8, statement.colText(11)),
+            .salary_type = try allocator.dupe(u8, statement.colText(12)),
+            .salary_notes = try allocator.dupe(u8, statement.colText(13)),
+        },
+        .status = try allocator.dupe(u8, statement.colText(14)),
+        .created_at = try allocator.dupe(u8, statement.colText(15)),
+        .updated_at = try allocator.dupe(u8, statement.colText(16)),
+    };
 }
 
 test "validation rules" {
     try std.testing.expect(validate(.{}).company != null);
     try std.testing.expect(validate(.{ .company_name = "A", .position_name = "B", .salary_min = 200, .salary_max = 100 }).salary_max != null);
     try std.testing.expect(!validate(.{ .company_name = "A", .position_name = "B", .salary_discussed = true }).any());
+}
+
+test "salary validation covers invalid negative empty and complete ranges" {
+    const required = Input{
+        .company_name = "A",
+        .position_name = "B",
+    };
+    try std.testing.expect(!validate(required).any());
+    try std.testing.expect(validate(.{
+        .company_name = "A",
+        .position_name = "B",
+        .salary_min_invalid = true,
+    }).salary_min != null);
+    try std.testing.expect(validate(.{
+        .company_name = "A",
+        .position_name = "B",
+        .salary_max_invalid = true,
+    }).salary_max != null);
+    try std.testing.expect(validate(.{
+        .company_name = "A",
+        .position_name = "B",
+        .salary_min = -1,
+    }).salary_min != null);
+    try std.testing.expect(validate(.{
+        .company_name = "A",
+        .position_name = "B",
+        .salary_max = -1,
+    }).salary_max != null);
+    try std.testing.expect(validate(.{
+        .company_name = "A",
+        .position_name = "B",
+        .salary_min = 100,
+        .salary_max = 200,
+    }).any() == false);
 }

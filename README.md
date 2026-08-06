@@ -4,7 +4,7 @@ Interview CRM is a private, single-user job-search tracker that runs locally and
 
 ## Technology
 
-The application uses Zig 0.16, the system SQLite library, server-rendered semantic HTML, progressively enhanced forms, embedded local assets, and pure CSS. There is no frontend build, ORM, external database, cloud service, or authentication.
+The application uses Zig 0.16, the system SQLite library, server-rendered semantic HTML, progressively enhanced forms, embedded local assets, and pure CSS. HTMX 2.0.10 is vendored locally and embedded in the application binary; no CDN is used. There is no frontend build, ORM, external database, cloud service, or authentication.
 
 ## Requirements
 

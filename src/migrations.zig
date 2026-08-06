@@ -9,7 +9,11 @@ pub const Migration = struct {
 };
 
 pub const registry = [_]Migration{
-    .{ .version = 1, .name = "initial_schema", .sql = @embedFile("migrations/001_initial_schema.sql") },
+    .{
+        .version = 1,
+        .name = "initial_schema",
+        .sql = @embedFile("migrations/001_initial_schema.sql"),
+    },
 };
 
 pub fn apply(database: *db.Database) !void {
@@ -70,8 +74,16 @@ test "multiple registered migrations apply in order" {
     var database = try db.Database.open(":memory:");
     defer database.close();
     const test_registry = [_]Migration{
-        .{ .version = 1, .name = "one", .sql = "CREATE TABLE one(id INTEGER);" },
-        .{ .version = 2, .name = "two", .sql = "CREATE TABLE two(id INTEGER);" },
+        .{
+            .version = 1,
+            .name = "one",
+            .sql = "CREATE TABLE one(id INTEGER);",
+        },
+        .{
+            .version = 2,
+            .name = "two",
+            .sql = "CREATE TABLE two(id INTEGER);",
+        },
     };
     try applyRegistry(&database, &test_registry);
     try std.testing.expectEqual(@as(i64, 2), try database.scalarInt("SELECT count(*) FROM schema_migrations"));
@@ -81,7 +93,11 @@ test "failed migration rolls back SQL and history" {
     var database = try db.Database.open(":memory:");
     defer database.close();
     const broken = [_]Migration{
-        .{ .version = 1, .name = "broken", .sql = "CREATE TABLE should_rollback(id INTEGER); THIS IS NOT SQL;" },
+        .{
+            .version = 1,
+            .name = "broken",
+            .sql = "CREATE TABLE should_rollback(id INTEGER); THIS IS NOT SQL;",
+        },
     };
     try std.testing.expectError(error.Sqlite, applyRegistry(&database, &broken));
     try std.testing.expectEqual(@as(i64, 0), try database.scalarInt("SELECT count(*) FROM schema_migrations"));
