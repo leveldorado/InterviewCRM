@@ -1,0 +1,34 @@
+pub templ Field(
+    name: []const u8,
+    label: []const u8,
+    input_type: []const u8,
+    inputmode: ?[]const u8,
+    value: []const u8,
+    validation_error: ?[]const u8,
+    validation_error_id: ?[]const u8,
+) {
+    <div class="field">
+        <label for={name}>{label}</label>
+        <input
+            id={name}
+            name={name}
+            type={input_type}
+            inputmode={inputmode}
+            value={value}
+            aria-describedby={validation_error_id}
+            class={if (validation_error != null) "field-error" else null}
+        />
+        if (validation_error) |message| {
+            <div id={validation_error_id} class="error">{message}</div>
+        }
+    </div>
+}
+
+pub templ EmptyState(message: []const u8) {
+    <p class="empty">{message}</p>
+}
+
+pub templ Fact(label: []const u8, value: []const u8) {
+    <dt>{label}</dt>
+    <dd>{if (value.len > 0) value else "—"}</dd>
+}

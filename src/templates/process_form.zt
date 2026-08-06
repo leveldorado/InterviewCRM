@@ -1,0 +1,51 @@
+const layout = @import("layout.zig");
+const components = @import("components.zig");
+const view_models = @import("../view_models.zig");
+
+pub templ ProcessForm(view: view_models.ProcessForm) {
+    <section id="process-form" class="panel">
+        <h1>{view.title}</h1>
+        <form
+            method="post"
+            action={view.action}
+            hx-post={view.action}
+            hx-target="#process-form"
+            hx-swap="outerHTML"
+            hx-indicator="#process-form-indicator"
+            hx-disabled-elt="find button[type='submit']"
+        >
+            @components.Field("company_name", "Company name", "text", @as(?[]const u8, null), view.input.company_name, view.errors.company, if (view.errors.company != null) @as(?[]const u8, "company_name-error") else null)
+            @components.Field("position_name", "Position name", "text", @as(?[]const u8, null), view.input.position_name, view.errors.position, if (view.errors.position != null) @as(?[]const u8, "position_name-error") else null)
+            @components.Field("job_url", "Job URL", "url", @as(?[]const u8, null), view.input.job_url, view.errors.url, if (view.errors.url != null) @as(?[]const u8, "job_url-error") else null)
+            @components.Field("source", "Source", "text", @as(?[]const u8, null), view.input.source, @as(?[]const u8, null), @as(?[]const u8, null))
+            @components.Field("location", "Location", "text", @as(?[]const u8, null), view.input.location, @as(?[]const u8, null), @as(?[]const u8, null))
+            @components.Field("work_arrangement", "Work arrangement", "text", @as(?[]const u8, null), view.input.work_arrangement, @as(?[]const u8, null), @as(?[]const u8, null))
+            <div class="field">
+                <label class="check">
+                    <input name="salary_discussed" type="checkbox" value="1" checked={if (view.input.salary_discussed) "checked" else null} />
+                    Salary discussed
+                </label>
+            </div>
+            @components.Field("salary_min", "Minimum salary", "text", @as(?[]const u8, "numeric"), view.salary_min_value, view.errors.salary_min, if (view.errors.salary_min != null) @as(?[]const u8, "salary_min-error") else null)
+            @components.Field("salary_max", "Maximum salary", "text", @as(?[]const u8, "numeric"), view.salary_max_value, view.errors.salary_max, if (view.errors.salary_max != null) @as(?[]const u8, "salary_max-error") else null)
+            @components.Field("currency", "Currency code", "text", @as(?[]const u8, null), view.input.currency, @as(?[]const u8, null), @as(?[]const u8, null))
+            @components.Field("period", "Salary period", "text", @as(?[]const u8, null), view.input.period, @as(?[]const u8, null), @as(?[]const u8, null))
+            @components.Field("salary_type", "Salary type", "text", @as(?[]const u8, null), view.input.salary_type, @as(?[]const u8, null), @as(?[]const u8, null))
+            <div class="field">
+                <label for="salary_notes">Salary notes</label>
+                <textarea id="salary_notes" name="salary_notes" rows="4">{view.input.salary_notes}</textarea>
+            </div>
+            <div class="actions">
+                <button type="submit">Save process</button>
+                <span id="process-form-indicator" class="htmx-indicator" aria-live="polite">Saving…</span>
+                <a class="secondary" href={view.cancel_url}>Cancel</a>
+            </div>
+        </form>
+    </section>
+}
+
+pub templ ProcessFormPage(view: view_models.ProcessForm) {
+    @layout.Layout(view.title) {
+        @ProcessForm(view)
+    }
+}

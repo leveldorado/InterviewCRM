@@ -1,0 +1,55 @@
+const layout = @import("layout.zig");
+const components = @import("components.zig");
+const view_models = @import("../view_models.zig");
+
+pub templ DashboardContent(view: view_models.Dashboard) {
+    <div class="actions"><h1>Dashboard</h1></div>
+    <div class="grid">
+        <section class="panel">
+            <h2>Today</h2>
+            @components.EmptyState("Today appointment tracking will be added in a later release.")
+        </section>
+        <section class="panel">
+            <h2>This week</h2>
+            @components.EmptyState("This-week appointment tracking will be added in a later release.")
+        </section>
+    </div>
+    <section class="panel">
+        <h2>Needs attention</h2>
+        @components.EmptyState("Needs-attention tracking will be added in a later release.")
+    </section>
+    <section class="panel">
+        <h2>Active processes</h2>
+        if (view.processes.len == 0) {
+            @components.EmptyState("No active processes yet. Add one to begin tracking your search.")
+        } else {
+            <div class="table-wrap">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Company</th><th>Position</th><th>Status</th><th>Salary</th><th>Source</th><th>Last updated</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        for (view.processes) |process| {
+                            <tr>
+                                <td><a href={process.detail_url}>{process.company_name}</a></td>
+                                <td>{process.position_name}</td>
+                                <td><span class="badge">{process.status}</span></td>
+                                <td>{process.salary_display}</td>
+                                <td>{process.source}</td>
+                                <td>{process.updated_at}</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </section>
+}
+
+pub templ DashboardPage(view: view_models.Dashboard) {
+    @layout.Layout("Dashboard") {
+        @DashboardContent(view)
+    }
+}

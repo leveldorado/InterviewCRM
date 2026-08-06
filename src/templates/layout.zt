@@ -1,0 +1,28 @@
+const htmx_config =
+    \\{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"422","swap":true},{"code":"[45]..","swap":false,"error":true},{"code":"...","swap":false}]}
+;
+
+pub templ Layout(title: []const u8) {
+    <!DOCTYPE html>
+    <html lang="en">
+        <head>
+            <meta charset="utf-8" />
+            <meta name="viewport" content="width=device-width, initial-scale=1" />
+            <meta name="htmx-config" content={htmx_config} />
+            <title>{title} · Interview CRM</title>
+            <link rel="stylesheet" href="/static/app.css" />
+            <script defer src="/static/vendor/htmx.min.js"></script>
+        </head>
+        <body>
+            <header>
+                <nav>
+                    <a href="/"><strong>Interview CRM</strong></a>
+                    <a class="button" href="/processes/new">Add job process</a>
+                </nav>
+            </header>
+            <main id="main-content">
+                @children
+            </main>
+        </body>
+    </html>
+}

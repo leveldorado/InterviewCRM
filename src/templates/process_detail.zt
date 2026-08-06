@@ -1,0 +1,42 @@
+const layout = @import("layout.zig");
+const components = @import("components.zig");
+const view_models = @import("../view_models.zig");
+
+pub templ ProcessDetailContent(view: view_models.ProcessDetail) {
+    <title>{view.title} · Interview CRM</title>
+    <div class="actions">
+        <a class="secondary" href="/">← Dashboard</a>
+        <a class="button" href={view.edit_url}>Edit process</a>
+    </div>
+    <section class="panel">
+        <h1>{view.company_name}</h1>
+        <h2>{view.position_name}</h2>
+        <dl class="facts">
+            @components.Fact("Status", view.status)
+            @components.Fact("Source", view.source)
+            @components.Fact("Location", view.location)
+            @components.Fact("Work arrangement", view.work_arrangement)
+            @components.Fact("Salary notes", view.salary_notes)
+            @components.Fact("Created", view.created_at)
+            @components.Fact("Last updated", view.updated_at)
+            @components.Fact("Salary", view.salary_display)
+            <dt>Job URL</dt>
+            <dd>
+                if (view.job_url) |job_url| {
+                    <a rel="noopener" href={job_url}>{job_url}</a>
+                } else {
+                    —
+                }
+            </dd>
+        </dl>
+    </section>
+    <section class="panel"><h2>Stage timeline</h2>@components.EmptyState("Stage timeline will be added in a later release.")</section>
+    <section class="panel"><h2>Notes</h2>@components.EmptyState("Notes will be added in a later release.")</section>
+    <section class="panel"><h2>Appointment list</h2>@components.EmptyState("Appointment list will be added in a later release.")</section>
+}
+
+pub templ ProcessDetailPage(view: view_models.ProcessDetail) {
+    @layout.Layout(view.title) {
+        @ProcessDetailContent(view)
+    }
+}

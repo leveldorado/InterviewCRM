@@ -1,7 +1,13 @@
 .{
     .name = .interview_crm,
     .version = "0.1.0",
+    .dependencies = .{
+        .zt = .{
+            .url = "git+https://github.com/lalinsky/zt#a8b94373999c2483efa5f646438263785f70743d",
+            .hash = "zt-0.0.0-oSxxLHUWAgBRX_4qFpIbURNBtGasSCYdqcnRjcnItmT0",
+        },
+    },
     .fingerprint = 0x703e733fee2c3281,
     .minimum_zig_version = "0.16.0",
-    .paths = .{ "build.zig", "build.zig.zon", "src", "README.md", "LICENSE" },
+    .paths = .{ "build.zig", "build.zig.zon", "src", "tools", "README.md", "LICENSE" },
 }

@@ -6,3 +6,5 @@
 *.sqlite-shm
 *.sqlite-wal
 .DS_Store
+src/templates/*.zig
+/zig-pkg/

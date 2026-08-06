@@ -1,7 +1,9 @@
 pub const Database = @import("database.zig").Database;
+pub const assets = @import("assets.zig");
 pub const migrations = @import("migrations.zig");
 pub const processes = @import("processes.zig");
 pub const views = @import("views.zig");
+pub const view_models = @import("view_models.zig");
 pub const config = @import("config.zig");
 pub const server = @import("server.zig");
 const std = @import("std");
