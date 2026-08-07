@@ -28,8 +28,14 @@ test "navigation indicator is positioned without changing header layout" {
     try std.testing.expect(std.mem.indexOf(
         u8,
         css,
-        "transform: translateX(-50%);",
+        "top: 50%;",
     ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        css,
+        "transform: translate(-50%, -50%);",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(u8, css, "white-space: nowrap;") != null);
     try std.testing.expect(std.mem.indexOf(u8, css, "visibility: hidden;") != null);
     try std.testing.expect(std.mem.indexOf(u8, css, "opacity: 0;") != null);
 
