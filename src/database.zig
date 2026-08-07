@@ -100,6 +100,16 @@ pub const Statement = struct {
         self.database.logError("step statement");
         return error.Sqlite;
     }
+    pub fn reset(self: *Statement) !void {
+        if (c.sqlite3_reset(self.handle) != c.SQLITE_OK) {
+            self.database.logError("reset statement");
+            return error.Sqlite;
+        }
+        if (c.sqlite3_clear_bindings(self.handle) != c.SQLITE_OK) {
+            self.database.logError("clear bindings");
+            return error.Sqlite;
+        }
+    }
     pub fn colText(self: *Statement, i: c_int) []const u8 {
         const p = c.sqlite3_column_text(self.handle, i);
         if (p == null) return "";

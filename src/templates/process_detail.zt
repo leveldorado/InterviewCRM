@@ -1,5 +1,6 @@
 const layout = @import("layout.zig");
 const components = @import("components.zig");
+const stage_timeline = @import("stage_timeline.zig");
 const view_models = @import("../view_models.zig");
 
 pub templ ProcessDetailContent(view: view_models.ProcessDetail) {
@@ -29,22 +30,11 @@ pub templ ProcessDetailContent(view: view_models.ProcessDetail) {
             </dd>
         </dl>
     </section>
-    <section class="panel">
-        <h2>Stage timeline</h2>
-        @components.EmptyState(
-            "Stage timeline will be added in a later release.",
-        )
-    </section>
+    @stage_timeline.StageTimeline(view.timeline)
     <section class="panel">
         <h2>Notes</h2>
         @components.EmptyState(
             "Notes will be added in a later release.",
-        )
-    </section>
-    <section class="panel">
-        <h2>Appointment list</h2>
-        @components.EmptyState(
-            "Appointment list will be added in a later release.",
         )
     </section>
 }

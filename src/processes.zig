@@ -1,5 +1,6 @@
 const std = @import("std");
 const db = @import("database.zig");
+const stages = @import("stages.zig");
 
 pub const Input = struct {
     company_name: []const u8 = "",
@@ -34,6 +35,7 @@ pub const Process = struct {
     id: i64,
     input: Input,
     status: []const u8,
+    current_stage_id: ?i64 = null,
     created_at: []const u8,
     updated_at: []const u8,
 };
@@ -60,7 +62,7 @@ pub fn validate(input: Input) Errors {
     return e;
 }
 
-const select_cols = "id,company_name,position_name,job_url,source,location,work_arrangement,salary_discussed,salary_amount_min,salary_amount_max,salary_currency,salary_period,salary_type,salary_notes,status,created_at,updated_at";
+const select_cols = "id,company_name,position_name,job_url,source,location,work_arrangement,salary_discussed,salary_amount_min,salary_amount_max,salary_currency,salary_period,salary_type,salary_notes,status,current_stage_id,created_at,updated_at";
 pub fn create(database: *db.Database, input: Input) !i64 {
     if (validate(input).any()) return error.InvalidInput;
     try database.begin();
@@ -70,6 +72,7 @@ pub fn create(database: *db.Database, input: Input) !i64 {
     try bind(&s, input);
     _ = try s.step();
     const id = database.lastId();
+    _ = try stages.createDefaults(database, id);
     var a = try database.prepare("INSERT INTO activity_log(process_id,activity_type,description,created_at) VALUES(?,'process_created','Job process created',datetime('now'))");
     defer a.deinit();
     try a.int(1, id);
@@ -144,8 +147,9 @@ fn read(allocator: std.mem.Allocator, statement: *db.Statement) !Process {
             .salary_notes = try allocator.dupe(u8, statement.colText(13)),
         },
         .status = try allocator.dupe(u8, statement.colText(14)),
-        .created_at = try allocator.dupe(u8, statement.colText(15)),
-        .updated_at = try allocator.dupe(u8, statement.colText(16)),
+        .current_stage_id = statement.colOptionalInt(15),
+        .created_at = try allocator.dupe(u8, statement.colText(16)),
+        .updated_at = try allocator.dupe(u8, statement.colText(17)),
     };
 }
 

@@ -14,6 +14,11 @@ pub const registry = [_]Migration{
         .name = "initial_schema",
         .sql = @embedFile("migrations/001_initial_schema.sql"),
     },
+    .{
+        .version = 2,
+        .name = "default_stages",
+        .sql = @embedFile("migrations/002_default_stages.sql"),
+    },
 };
 
 pub fn apply(database: *db.Database) !void {
@@ -102,4 +107,41 @@ test "failed migration rolls back SQL and history" {
     try std.testing.expectError(error.Sqlite, applyRegistry(&database, &broken));
     try std.testing.expectEqual(@as(i64, 0), try database.scalarInt("SELECT count(*) FROM schema_migrations"));
     try std.testing.expectEqual(@as(i64, 0), try database.scalarInt("SELECT count(*) FROM sqlite_master WHERE name='should_rollback'"));
+}
+
+test "default-stage migration backfills only stage-less processes" {
+    var database = try db.Database.open(":memory:");
+    defer database.close();
+    try applyRegistry(&database, registry[0..1]);
+    try database.exec(
+        "INSERT INTO job_processes(id,company_name,position_name,created_at,updated_at) VALUES(1,'Old','Role',datetime('now'),datetime('now'));" ++
+            "INSERT INTO job_processes(id,company_name,position_name,created_at,updated_at) VALUES(2,'Custom','Role',datetime('now'),datetime('now'));" ++
+            "INSERT INTO job_processes(id,company_name,position_name,created_at,updated_at) VALUES(3,'Custom no pointer','Role',datetime('now'),datetime('now'));" ++
+            "INSERT INTO stages(id,process_id,name,position,status,created_at,updated_at) VALUES(20,2,'Hiring manager',1,'scheduled',datetime('now'),datetime('now'));" ++
+            "INSERT INTO stages(id,process_id,name,position,status,created_at,updated_at) VALUES(30,3,'Founder call',1,'planned',datetime('now'),datetime('now'));" ++
+            "UPDATE job_processes SET current_stage_id=20 WHERE id=2;",
+    );
+
+    try apply(&database);
+    try apply(&database);
+    try std.testing.expectEqual(
+        @as(i64, 7),
+        try database.scalarInt("SELECT count(*) FROM stages WHERE process_id=1"),
+    );
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt("SELECT count(*) FROM stages WHERE process_id=2"),
+    );
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt("SELECT position FROM stages WHERE id=(SELECT current_stage_id FROM job_processes WHERE id=1)"),
+    );
+    try std.testing.expectEqual(
+        @as(i64, 20),
+        try database.scalarInt("SELECT current_stage_id FROM job_processes WHERE id=2"),
+    );
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt("SELECT count(*) FROM job_processes WHERE id=3 AND current_stage_id IS NULL"),
+    );
 }

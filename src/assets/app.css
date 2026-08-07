@@ -171,6 +171,153 @@ button:focus {
   font-weight: 650;
 }
 
+/* Interview stage timeline */
+.section-heading,
+.stage-heading,
+.appointment-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.stage-list {
+  position: relative;
+  display: grid;
+  gap: 1rem;
+  margin: 1rem 0;
+}
+
+.stage-list::before {
+  position: absolute;
+  top: 1.5rem;
+  bottom: 1.5rem;
+  left: 1.2rem;
+  width: 2px;
+  content: "";
+  background: #dce1e4;
+}
+
+.stage-card {
+  position: relative;
+  padding: 1rem;
+  background: #fff;
+  border: 1px solid #dce1e4;
+  border-radius: 0.5rem;
+}
+
+.current-stage {
+  border-color: #176b5b;
+  box-shadow: inset 4px 0 #176b5b;
+}
+
+.completed-stage {
+  border-color: #78958f;
+}
+
+.skipped-stage {
+  color: #5f6870;
+  background: #f7f9f9;
+}
+
+.scheduled-stage {
+  border-color: #456f9a;
+}
+
+.stage-heading {
+  position: relative;
+  z-index: 1;
+  justify-content: flex-start;
+}
+
+.stage-heading h3,
+.stage-heading p,
+.stage-section h4,
+.appointment-card p {
+  margin-top: 0;
+}
+
+.stage-marker {
+  display: grid;
+  flex: 0 0 1.5rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  place-items: center;
+  font-weight: 700;
+  background: white;
+}
+
+.stage-status {
+  margin-bottom: 0;
+  color: #5f6870;
+  font-size: 0.9rem;
+}
+
+.stage-actions,
+.inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.stage-section {
+  padding-top: 1rem;
+  margin-top: 1rem;
+  border-top: 1px solid #e1e5e7;
+}
+
+.stage-empty {
+  color: #5f6870;
+}
+
+.notes-list {
+  padding: 0;
+  list-style: none;
+}
+
+.notes-list li,
+.appointment-card {
+  padding: 0.8rem;
+  margin-bottom: 0.75rem;
+  background: #f7f9f9;
+  border-radius: 0.35rem;
+}
+
+.note-body,
+.preparation-note {
+  white-space: pre-wrap;
+}
+
+.appointment-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.appointment-card form {
+  margin-top: 0.75rem;
+}
+
+.inline-form {
+  padding: 0.75rem;
+  margin-top: 1rem;
+  background: #f7f9f9;
+  border: 1px solid #dce1e4;
+  border-radius: 0.35rem;
+}
+
+.inline-form summary {
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.inline-form form,
+.inline-actions details form {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+
 /* HTMX indicators */
 .htmx-indicator {
   display: none;
@@ -215,5 +362,16 @@ button:focus {
 
   .facts dd {
     margin: 0 0 0.5rem;
+  }
+
+  .stage-card {
+    padding: 0.85rem;
+  }
+
+  .stage-actions,
+  .inline-actions,
+  .appointment-heading {
+    align-items: stretch;
+    flex-direction: column;
   }
 }

@@ -1,0 +1,40 @@
+const stage_card = @import("stage_card.zig");
+const view_models = @import("../view_models.zig");
+
+pub templ StageTimeline(view: view_models.StageTimeline) {
+    <section id="stage-timeline" class="panel stage-timeline">
+        <div class="section-heading">
+            <h2>Interview stages</h2>
+        </div>
+
+        <div class="stage-list">
+            for (view.stages) |stage| {
+                @stage_card.StageCard(stage)
+            }
+        </div>
+
+        <details class="inline-form" open={if (view.add_stage.error_message != null) "open" else null}>
+            <summary>Add custom stage</summary>
+            <form
+                method="post"
+                action={view.add_stage_action}
+                hx-post={view.add_stage_action}
+                hx-target="#stage-timeline"
+                hx-swap="outerHTML"
+            >
+                <label for="stage-name">Stage name</label>
+                <input
+                    id="stage-name"
+                    name="name"
+                    maxlength="120"
+                    value={view.add_stage.name}
+                    class={if (view.add_stage.error_message != null) "field-error" else null}
+                />
+                if (view.add_stage.error_message) |message| {
+                    <p class="error">{message}</p>
+                }
+                <button type="submit">Add stage</button>
+            </form>
+        </details>
+    </section>
+}

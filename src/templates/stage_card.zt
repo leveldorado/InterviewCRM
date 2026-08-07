@@ -1,0 +1,218 @@
+const view_models = @import("../view_models.zig");
+
+pub templ StageCard(view: view_models.Stage) {
+    <article id={view.article_id} class={view.state_class}>
+        <div class="stage-heading">
+            <span class="stage-marker" aria-hidden="true">{view.marker}</span>
+            <div>
+                <h3>{view.name}</h3>
+                <p class="stage-status">{view.status_label}</p>
+            </div>
+        </div>
+
+        if (view.can_complete or view.can_skip or view.can_reopen) {
+            <div class="stage-actions">
+                if (view.can_complete) {
+                    <form
+                        method="post"
+                        action={view.complete_action}
+                        hx-post={view.complete_action}
+                        hx-target="#stage-timeline"
+                        hx-swap="outerHTML"
+                    >
+                        <button type="submit">Complete</button>
+                    </form>
+                }
+                if (view.can_skip) {
+                    <form
+                        method="post"
+                        action={view.skip_action}
+                        hx-post={view.skip_action}
+                        hx-target="#stage-timeline"
+                        hx-swap="outerHTML"
+                    >
+                        <button class="secondary" type="submit">Skip</button>
+                    </form>
+                }
+                if (view.can_reopen) {
+                    <form
+                        method="post"
+                        action={view.reopen_action}
+                        hx-post={view.reopen_action}
+                        hx-target="#stage-timeline"
+                        hx-swap="outerHTML"
+                    >
+                        <button class="secondary" type="submit">Reopen</button>
+                    </form>
+                }
+            </div>
+        }
+
+        <section class="stage-section">
+            <h4>Notes</h4>
+            if (view.notes.len == 0) {
+                <p class="stage-empty">No notes yet.</p>
+            } else {
+                <ul class="notes-list">
+                    for (view.notes) |note| {
+                        <li>
+                            <p class="note-body">{note.body}</p>
+                            <div class="inline-actions">
+                                <details>
+                                    <summary>Edit</summary>
+                                    <form
+                                        method="post"
+                                        action={note.edit_action}
+                                        hx-post={note.edit_action}
+                                        hx-target={view.target_id}
+                                        hx-swap="outerHTML"
+                                    >
+                                        <label>
+                                            Note
+                                            <textarea name="body" rows="4">{note.body}</textarea>
+                                        </label>
+                                        <button type="submit">Save note</button>
+                                    </form>
+                                </details>
+                                <form
+                                    method="post"
+                                    action={note.delete_action}
+                                    hx-post={note.delete_action}
+                                    hx-target={view.target_id}
+                                    hx-swap="outerHTML"
+                                >
+                                    <button class="secondary" type="submit">Delete</button>
+                                </form>
+                            </div>
+                        </li>
+                    }
+                </ul>
+            }
+            <details class="inline-form" open={if (view.note_form.error_message != null) "open" else null}>
+                <summary>Add note</summary>
+                <form
+                    method="post"
+                    action={view.add_note_action}
+                    hx-post={view.add_note_action}
+                    hx-target={view.target_id}
+                    hx-swap="outerHTML"
+                >
+                    <label>
+                        Note
+                        <textarea
+                            name="body"
+                            rows="4"
+                            class={if (view.note_form.error_message != null) "field-error" else null}
+                        >{view.note_form.body}</textarea>
+                    </label>
+                    if (view.note_form.error_message) |message| {
+                        <p class="error">{message}</p>
+                    }
+                    <button type="submit">Add note</button>
+                </form>
+            </details>
+        </section>
+
+        <section class="stage-section">
+            <h4>Interviews</h4>
+            if (view.appointments.len == 0) {
+                <p class="stage-empty">No interviews scheduled.</p>
+            } else {
+                <div class="appointment-list">
+                    for (view.appointments) |appointment| {
+                        <article class="appointment-card">
+                            <div class="appointment-heading">
+                                <strong>{appointment.title}</strong>
+                                <span>{appointment.status_label}</span>
+                            </div>
+                            <p><time>{appointment.time_display}</time></p>
+                            if (appointment.location) |location| {
+                                <p>{location}</p>
+                            }
+                            if (appointment.contact_name) |contact_name| {
+                                <p>{contact_name}</p>
+                            }
+                            if (appointment.preparation_note) |preparation_note| {
+                                <p class="preparation-note"><strong>Preparation:</strong> {preparation_note}</p>
+                            }
+                            if (appointment.meeting_url) |meeting_url| {
+                                <a href={meeting_url} target="_blank" rel="noopener noreferrer" hx-boost="false">Open meeting link</a>
+                            }
+                            if (appointment.can_cancel) {
+                                <form
+                                    method="post"
+                                    action={appointment.cancel_action}
+                                    hx-post={appointment.cancel_action}
+                                    hx-target={view.target_id}
+                                    hx-swap="outerHTML"
+                                >
+                                    <button class="secondary" type="submit">Cancel interview</button>
+                                </form>
+                            }
+                        </article>
+                    }
+                </div>
+            }
+
+            <details class="inline-form" open={if (view.appointment_form.errors.any()) "open" else null}>
+                <summary>Schedule interview</summary>
+                <form
+                    method="post"
+                    action={view.schedule_action}
+                    hx-post={view.schedule_action}
+                    hx-target={view.target_id}
+                    hx-swap="outerHTML"
+                >
+                    <label>
+                        Title
+                        <input name="title" value={view.appointment_form.input.title} />
+                    </label>
+                    if (view.appointment_form.errors.title) |message| {
+                        <p class="error">{message}</p>
+                    }
+
+                    <label>
+                        Start
+                        <input name="starts_at" type="datetime-local" value={view.appointment_form.input.starts_at} required="required" />
+                    </label>
+                    if (view.appointment_form.errors.starts_at) |message| {
+                        <p class="error">{message}</p>
+                    }
+
+                    <label>
+                        End
+                        <input name="ends_at" type="datetime-local" value={view.appointment_form.input.ends_at} />
+                    </label>
+                    if (view.appointment_form.errors.ends_at) |message| {
+                        <p class="error">{message}</p>
+                    }
+
+                    <label>
+                        Meeting URL
+                        <input name="meeting_url" type="url" value={view.appointment_form.input.meeting_url} />
+                    </label>
+                    if (view.appointment_form.errors.meeting_url) |message| {
+                        <p class="error">{message}</p>
+                    }
+
+                    <label>
+                        Contact name
+                        <input name="contact_name" value={view.appointment_form.input.contact_name} />
+                    </label>
+
+                    <label>
+                        Location / platform
+                        <input name="location" value={view.appointment_form.input.location} />
+                    </label>
+
+                    <label>
+                        Preparation note
+                        <textarea name="preparation_note" rows="4">{view.appointment_form.input.preparation_note}</textarea>
+                    </label>
+
+                    <button type="submit">Schedule interview</button>
+                </form>
+            </details>
+        </section>
+    </article>
+}

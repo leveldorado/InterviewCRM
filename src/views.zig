@@ -1,10 +1,17 @@
 const std = @import("std");
+const appointments = @import("appointments.zig");
+const db = @import("database.zig");
+const notes = @import("notes.zig");
+const migrations = @import("migrations.zig");
 const processes = @import("processes.zig");
+const stages = @import("stages.zig");
 const view_models = @import("view_models.zig");
 const dashboard_template = @import("templates/dashboard.zig");
 const process_form_template = @import("templates/process_form.zig");
 const process_detail_template = @import("templates/process_detail.zig");
 const error_page_template = @import("templates/error_page.zig");
+const stage_card_template = @import("templates/stage_card.zig");
+const stage_timeline_template = @import("templates/stage_timeline.zig");
 
 pub fn buildDashboard(
     allocator: std.mem.Allocator,
@@ -70,7 +77,9 @@ pub fn buildProcessForm(
 
 pub fn buildProcessDetail(
     allocator: std.mem.Allocator,
+    database: *db.Database,
     process: processes.Process,
+    form_state: view_models.TimelineFormState,
 ) !view_models.ProcessDetail {
     return .{
         .id = process.id,
@@ -94,7 +103,235 @@ pub fn buildProcessDetail(
             null,
         .created_at = process.created_at,
         .updated_at = process.updated_at,
+        .timeline = try buildStageTimelineView(
+            allocator,
+            database,
+            process.id,
+            process.current_stage_id,
+            form_state,
+        ),
     };
+}
+
+pub fn buildStageTimelineView(
+    allocator: std.mem.Allocator,
+    database: *db.Database,
+    process_id: i64,
+    current_stage_id: ?i64,
+    form_state: view_models.TimelineFormState,
+) !view_models.StageTimeline {
+    const stored_stages = try stages.listForProcess(
+        allocator,
+        database,
+        process_id,
+    );
+    const stage_views = try allocator.alloc(
+        view_models.Stage,
+        stored_stages.len,
+    );
+    for (stored_stages, stage_views) |stage, *stage_view| {
+        stage_view.* = try buildStageCardView(
+            allocator,
+            database,
+            stage,
+            current_stage_id,
+            form_state,
+        );
+    }
+    return .{
+        .process_id = process_id,
+        .current_stage_id = current_stage_id,
+        .stages = stage_views,
+        .add_stage_action = try std.fmt.allocPrint(
+            allocator,
+            "/processes/{d}/stages",
+            .{process_id},
+        ),
+        .add_stage = form_state.add_stage,
+    };
+}
+
+pub fn buildStageCardView(
+    allocator: std.mem.Allocator,
+    database: *db.Database,
+    stage: stages.Stage,
+    current_stage_id: ?i64,
+    form_state: view_models.TimelineFormState,
+) !view_models.Stage {
+    const stored_notes = try notes.listForStage(
+        allocator,
+        database,
+        stage.process_id,
+        stage.id,
+    );
+    const note_views = try allocator.alloc(
+        view_models.StageNote,
+        stored_notes.len,
+    );
+    for (stored_notes, note_views) |note, *note_view| {
+        note_view.* = .{
+            .id = note.id,
+            .body = note.body,
+            .edit_action = try actionUrl(allocator, "notes", note.id, "edit"),
+            .delete_action = try actionUrl(allocator, "notes", note.id, "delete"),
+        };
+    }
+
+    const stored_appointments = try appointments.listForStage(
+        allocator,
+        database,
+        stage.process_id,
+        stage.id,
+    );
+    const appointment_views = try allocator.alloc(
+        view_models.StageAppointment,
+        stored_appointments.len,
+    );
+    for (stored_appointments, appointment_views) |appointment, *appointment_view| {
+        appointment_view.* = .{
+            .id = appointment.id,
+            .title = appointment.title,
+            .time_display = try appointmentTimeDisplay(
+                allocator,
+                appointment.starts_at,
+            ),
+            .meeting_url = appointment.meeting_url,
+            .contact_name = appointment.contact_name,
+            .location = appointment.location,
+            .preparation_note = appointment.preparation_note,
+            .status = appointments.statusText(appointment.status),
+            .status_label = appointmentStatusLabel(appointment.status),
+            .can_cancel = appointment.status != .cancelled,
+            .cancel_action = try actionUrl(
+                allocator,
+                "appointments",
+                appointment.id,
+                "cancel",
+            ),
+        };
+    }
+
+    const is_form_stage = form_state.stage_id == stage.id;
+    const note_form: view_models.NoteForm = if (is_form_stage)
+        form_state.note
+    else
+        .{};
+    const appointment_form = if (is_form_stage)
+        form_state.appointment
+    else
+        view_models.AppointmentForm{
+            .input = .{ .title = stage.name },
+        };
+    const is_current = current_stage_id == stage.id;
+    const article_id = try std.fmt.allocPrint(allocator, "stage-{d}", .{stage.id});
+    return .{
+        .id = stage.id,
+        .article_id = article_id,
+        .target_id = try std.fmt.allocPrint(allocator, "#{s}", .{article_id}),
+        .name = stage.name,
+        .position = stage.position,
+        .status = stages.statusText(stage.status),
+        .status_label = stageStatusLabel(stage.status),
+        .marker = stageMarker(stage.status, is_current),
+        .state_class = stageStateClass(stage.status, is_current),
+        .is_current = is_current,
+        .can_complete = is_current and
+            (stage.status == .in_progress or stage.status == .scheduled),
+        .can_skip = stage.status == .planned or
+            (is_current and
+                (stage.status == .in_progress or stage.status == .scheduled)),
+        .can_reopen = stage.status == .completed or stage.status == .skipped,
+        .complete_action = try actionUrl(allocator, "stages", stage.id, "complete"),
+        .skip_action = try actionUrl(allocator, "stages", stage.id, "skip"),
+        .reopen_action = try actionUrl(allocator, "stages", stage.id, "reopen"),
+        .add_note_action = try actionUrl(allocator, "stages", stage.id, "notes"),
+        .schedule_action = try actionUrl(
+            allocator,
+            "stages",
+            stage.id,
+            "appointments",
+        ),
+        .notes = note_views,
+        .appointments = appointment_views,
+        .note_form = note_form,
+        .appointment_form = appointment_form,
+    };
+}
+
+fn actionUrl(
+    allocator: std.mem.Allocator,
+    resource: []const u8,
+    id: i64,
+    action: []const u8,
+) ![]const u8 {
+    return std.fmt.allocPrint(
+        allocator,
+        "/{s}/{d}/{s}",
+        .{ resource, id, action },
+    );
+}
+
+fn stageStatusLabel(status: stages.Status) []const u8 {
+    return switch (status) {
+        .planned => "Planned",
+        .scheduled => "Scheduled",
+        .in_progress => "In progress",
+        .completed => "Completed",
+        .skipped => "Skipped",
+        .cancelled => "Cancelled",
+    };
+}
+
+fn stageMarker(status: stages.Status, is_current: bool) []const u8 {
+    return switch (status) {
+        .completed => "✓",
+        .skipped, .cancelled => "–",
+        else => if (is_current) "●" else "○",
+    };
+}
+
+fn stageStateClass(status: stages.Status, is_current: bool) []const u8 {
+    if (is_current) return "stage-card current-stage";
+    return switch (status) {
+        .completed => "stage-card completed-stage",
+        .skipped => "stage-card skipped-stage",
+        .scheduled => "stage-card scheduled-stage",
+        else => "stage-card",
+    };
+}
+
+fn appointmentStatusLabel(status: appointments.Status) []const u8 {
+    return switch (status) {
+        .scheduled => "Scheduled",
+        .completed => "Completed",
+        .cancelled => "Cancelled",
+    };
+}
+
+fn appointmentTimeDisplay(
+    allocator: std.mem.Allocator,
+    value: []const u8,
+) ![]const u8 {
+    if (value.len != 16) return allocator.dupe(u8, value);
+    const month_number = std.fmt.parseInt(usize, value[5..7], 10) catch
+        return allocator.dupe(u8, value);
+    const months = [_][]const u8{
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    };
+    if (month_number == 0 or month_number > months.len) {
+        return allocator.dupe(u8, value);
+    }
+    return std.fmt.allocPrint(
+        allocator,
+        "{d} {s} {s} · {s}",
+        .{
+            try std.fmt.parseInt(u8, value[8..10], 10),
+            months[month_number - 1],
+            value[0..4],
+            value[11..16],
+        },
+    );
 }
 
 pub fn buildSalaryDisplay(
@@ -194,6 +431,20 @@ pub fn renderProcessDetailFragment(
     view: view_models.ProcessDetail,
 ) !void {
     try process_detail_template.ProcessDetailFragment.render(.{view}, writer);
+}
+
+pub fn renderStageTimelineFragment(
+    writer: *std.Io.Writer,
+    view: view_models.StageTimeline,
+) !void {
+    try stage_timeline_template.StageTimeline.render(.{view}, writer);
+}
+
+pub fn renderStageCardFragment(
+    writer: *std.Io.Writer,
+    view: view_models.Stage,
+) !void {
+    try stage_card_template.StageCard.render(.{view}, writer);
 }
 
 pub fn renderErrorPage(
@@ -357,7 +608,10 @@ test "edit form uses one prepared action for HTML and HTMX" {
 }
 
 test "full and fragment process views remain structurally distinct" {
-    const process = processes.Process{
+    var database = try db.Database.open(":memory:");
+    defer database.close();
+    try migrations.apply(&database);
+    var process = processes.Process{
         .id = 7,
         .input = .{
             .company_name = "Acme & Sons",
@@ -376,7 +630,27 @@ test "full and fragment process views remain structurally distinct" {
     };
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
-    const view = try buildProcessDetail(arena.allocator(), process);
+    var insert_process = try database.prepare(
+        "INSERT INTO job_processes(id,company_name,position_name,created_at,updated_at) VALUES(7,'Acme & Sons','Engineer',datetime('now'),datetime('now'))",
+    );
+    defer insert_process.deinit();
+    _ = try insert_process.step();
+    try database.begin();
+    const first_stage_id = try stages.createDefaults(&database, process.id);
+    try database.commit();
+    _ = try notes.createForStage(
+        &database,
+        process.id,
+        first_stage_id,
+        .{ .body = "<script>alert(1)</script>\nPrepare examples" },
+    );
+    process.current_stage_id = first_stage_id;
+    const view = try buildProcessDetail(
+        arena.allocator(),
+        &database,
+        process,
+        .{},
+    );
 
     var page_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer page_output.deinit();
@@ -416,6 +690,27 @@ test "full and fragment process views remain structurally distinct" {
         u8,
         fragment,
         "rel=\"noopener noreferrer\"",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        fragment,
+        "id=\"stage-timeline\"",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(u8, fragment, "id=\"stage-1\"") != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        fragment,
+        "hx-target=\"#stage-timeline\"",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        fragment,
+        "hx-target=\"#stage-1\"",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        fragment,
+        "&lt;script&gt;alert(1)&lt;/script&gt;",
     ) != null);
 }
 
