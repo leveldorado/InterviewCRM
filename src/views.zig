@@ -29,7 +29,9 @@ pub fn buildDashboard(
             .updated_at = process.updated_at,
         };
     }
-    return .{ .processes = summaries };
+    return .{
+        .processes = summaries,
+    };
 }
 
 pub fn buildProcessForm(
@@ -191,7 +193,7 @@ pub fn renderProcessDetailFragment(
     writer: *std.Io.Writer,
     view: view_models.ProcessDetail,
 ) !void {
-    try process_detail_template.ProcessDetailContent.render(.{view}, writer);
+    try process_detail_template.ProcessDetailFragment.render(.{view}, writer);
 }
 
 pub fn renderErrorPage(
@@ -208,6 +210,22 @@ pub fn renderErrorFragment(
     try error_page_template.ErrorFragment.render(.{view}, writer);
 }
 
+fn expectSingleTitleOutsideMain(html: []const u8) !void {
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(u8, html, "<title>"),
+    );
+    const title_index = std.mem.indexOf(u8, html, "<title>").?;
+    const main_index = std.mem.indexOf(u8, html, "<main").?;
+    const main_end_index = std.mem.indexOf(u8, html, "</main>").?;
+    try std.testing.expect(title_index < main_index);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        html[main_index..main_end_index],
+        "<title>",
+    ) == null);
+}
+
 test "layout and form contain HTMX behavior and escape user input" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
@@ -219,7 +237,9 @@ test "layout and form contain HTMX behavior and escape user input" {
             .company_name = "<script>alert(\"x\")</script>",
             .salary_min_text = "12x",
         },
-        .{ .salary_min = "Enter a whole number." },
+        .{
+            .salary_min = "Enter a whole number.",
+        },
         null,
     );
     try renderProcessFormPage(&output.writer, view);
@@ -247,16 +267,20 @@ test "layout and form contain HTMX behavior and escape user input" {
 }
 
 test "dashboard page and navigation fragment preserve links and title" {
-    const summaries = [_]view_models.ProcessSummary{.{
-        .detail_url = "/processes/9",
-        .company_name = "Acme",
-        .position_name = "Engineer",
-        .status = "active",
-        .salary_display = "Not discussed",
-        .source = "Referral",
-        .updated_at = "today",
-    }};
-    const view = view_models.Dashboard{ .processes = &summaries };
+    const summaries = [_]view_models.ProcessSummary{
+        .{
+            .detail_url = "/processes/9",
+            .company_name = "Acme",
+            .position_name = "Engineer",
+            .status = "active",
+            .salary_display = "Not discussed",
+            .source = "Referral",
+            .updated_at = "today",
+        },
+    };
+    const view = view_models.Dashboard{
+        .processes = &summaries,
+    };
     var page_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer page_output.deinit();
     try renderDashboardPage(&page_output.writer, view);
@@ -333,8 +357,6 @@ test "edit form uses one prepared action for HTML and HTMX" {
 }
 
 test "full and fragment process views remain structurally distinct" {
-    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer output.deinit();
     const process = processes.Process{
         .id = 7,
         .input = .{
@@ -355,30 +377,44 @@ test "full and fragment process views remain structurally distinct" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const view = try buildProcessDetail(arena.allocator(), process);
-    try renderProcessDetailFragment(&output.writer, view);
+
+    var page_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer page_output.deinit();
+    try renderProcessDetailPage(&page_output.writer, view);
+    try expectSingleTitleOutsideMain(page_output.written());
+
+    var fragment_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer fragment_output.deinit();
+    try renderProcessDetailFragment(&fragment_output.writer, view);
+    const fragment = fragment_output.written();
     try std.testing.expect(std.mem.indexOf(
         u8,
-        output.written(),
+        fragment,
+        "<title>Acme &amp; Sons · Interview CRM</title>",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        fragment,
         "EUR 5,500–6,500 per month, gross",
     ) != null);
     try std.testing.expect(std.mem.indexOf(
         u8,
-        output.written(),
+        fragment,
         "Acme &amp; Sons",
     ) != null);
     try std.testing.expect(std.mem.indexOf(
         u8,
-        output.written(),
+        fragment,
         "<!DOCTYPE html>",
     ) == null);
     try std.testing.expect(std.mem.indexOf(
         u8,
-        output.written(),
+        fragment,
         "hx-boost=\"false\"",
     ) != null);
     try std.testing.expect(std.mem.indexOf(
         u8,
-        output.written(),
+        fragment,
         "rel=\"noopener noreferrer\"",
     ) != null);
 }
@@ -391,6 +427,7 @@ test "error page and fragment are distinct navigable representations" {
     var page_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer page_output.deinit();
     try renderErrorPage(&page_output.writer, view);
+    try expectSingleTitleOutsideMain(page_output.written());
     try std.testing.expect(std.mem.indexOf(
         u8,
         page_output.written(),

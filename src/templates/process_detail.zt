@@ -3,7 +3,6 @@ const components = @import("components.zig");
 const view_models = @import("../view_models.zig");
 
 pub templ ProcessDetailContent(view: view_models.ProcessDetail) {
-    <title>{view.title} · Interview CRM</title>
     <div class="actions">
         <a class="secondary" href="/">← Dashboard</a>
         <a class="button" href={view.edit_url}>Edit process</a>
@@ -30,13 +29,33 @@ pub templ ProcessDetailContent(view: view_models.ProcessDetail) {
             </dd>
         </dl>
     </section>
-    <section class="panel"><h2>Stage timeline</h2>@components.EmptyState("Stage timeline will be added in a later release.")</section>
-    <section class="panel"><h2>Notes</h2>@components.EmptyState("Notes will be added in a later release.")</section>
-    <section class="panel"><h2>Appointment list</h2>@components.EmptyState("Appointment list will be added in a later release.")</section>
+    <section class="panel">
+        <h2>Stage timeline</h2>
+        @components.EmptyState(
+            "Stage timeline will be added in a later release.",
+        )
+    </section>
+    <section class="panel">
+        <h2>Notes</h2>
+        @components.EmptyState(
+            "Notes will be added in a later release.",
+        )
+    </section>
+    <section class="panel">
+        <h2>Appointment list</h2>
+        @components.EmptyState(
+            "Appointment list will be added in a later release.",
+        )
+    </section>
 }
 
 pub templ ProcessDetailPage(view: view_models.ProcessDetail) {
     @layout.Layout(view.title) {
         @ProcessDetailContent(view)
     }
+}
+
+pub templ ProcessDetailFragment(view: view_models.ProcessDetail) {
+    <title>{view.title} · Interview CRM</title>
+    @ProcessDetailContent(view)
 }

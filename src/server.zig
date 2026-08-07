@@ -441,9 +441,18 @@ fn respondToSuccessfulSave(
         output.written(),
         .ok,
         &.{
-            .{ .name = "hx-retarget", .value = "#main-content" },
-            .{ .name = "hx-reswap", .value = "innerHTML" },
-            .{ .name = "hx-push-url", .value = process_url },
+            .{
+                .name = "hx-retarget",
+                .value = "#main-content",
+            },
+            .{
+                .name = "hx-reswap",
+                .value = "innerHTML",
+            },
+            .{
+                .name = "hx-push-url",
+                .value = process_url,
+            },
         },
     );
 }

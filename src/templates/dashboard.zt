@@ -3,7 +3,9 @@ const components = @import("components.zig");
 const view_models = @import("../view_models.zig");
 
 pub templ DashboardContent(view: view_models.Dashboard) {
-    <div class="actions"><h1>Dashboard</h1></div>
+    <div class="actions">
+        <h1>Dashboard</h1>
+    </div>
     <div class="grid">
         <section class="panel">
             <h2>Today</h2>
@@ -27,7 +29,12 @@ pub templ DashboardContent(view: view_models.Dashboard) {
                 <table>
                     <thead>
                         <tr>
-                            <th>Company</th><th>Position</th><th>Status</th><th>Salary</th><th>Source</th><th>Last updated</th>
+                            <th>Company</th>
+                            <th>Position</th>
+                            <th>Status</th>
+                            <th>Salary</th>
+                            <th>Source</th>
+                            <th>Last updated</th>
                         </tr>
                     </thead>
                     <tbody>

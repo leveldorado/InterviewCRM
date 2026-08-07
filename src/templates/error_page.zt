@@ -2,7 +2,6 @@ const layout = @import("layout.zig");
 const view_models = @import("../view_models.zig");
 
 pub templ ErrorContent(view: view_models.ErrorPage) {
-    <title>{view.title} · Interview CRM</title>
     <section class="panel error-page">
         <h1>{view.title}</h1>
         <p>{view.message}</p>
@@ -17,5 +16,6 @@ pub templ ErrorPage(view: view_models.ErrorPage) {
 }
 
 pub templ ErrorFragment(view: view_models.ErrorPage) {
+    <title>{view.title} · Interview CRM</title>
     @ErrorContent(view)
 }
