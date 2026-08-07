@@ -19,6 +19,11 @@ pub const registry = [_]Migration{
         .name = "default_stages",
         .sql = @embedFile("migrations/002_default_stages.sql"),
     },
+    .{
+        .version = 3,
+        .name = "job_model_v2",
+        .sql = @embedFile("migrations/003_job_model_v2.sql"),
+    },
 };
 
 pub fn apply(database: *db.Database) !void {

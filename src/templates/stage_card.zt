@@ -10,18 +10,31 @@ pub templ StageCard(view: view_models.Stage) {
             </div>
         </div>
 
-        if (view.can_complete or view.can_skip or view.can_reopen) {
+        if (view.can_set_outcome or view.can_skip or view.can_reopen) {
             <div class="stage-actions">
-                if (view.can_complete) {
-                    <form
-                        method="post"
-                        action={view.complete_action}
-                        hx-post={view.complete_action}
-                        hx-target="#stage-timeline"
-                        hx-swap="outerHTML"
-                    >
-                        <button type="submit">Complete</button>
-                    </form>
+                if (view.can_set_outcome) {
+                    <details class="inline-form" open={if (view.outcome_form.error_message != null) "open" else null}>
+                        <summary>Set outcome</summary>
+                        <form method="post" action={view.outcome_action} hx-post={view.outcome_action} hx-target="#stage-timeline" hx-swap="outerHTML">
+                            <label>
+                                Outcome
+                                <select name="outcome">
+                                    if (view.is_offer) {
+                                        <option value="accepted" selected={if (std.mem.eql(u8, view.outcome_form.outcome, "accepted")) "selected" else null}>Accept</option>
+                                        <option value="declined" selected={if (std.mem.eql(u8, view.outcome_form.outcome, "declined")) "selected" else null}>Decline</option>
+                                        <option value="withdrawn" selected={if (std.mem.eql(u8, view.outcome_form.outcome, "withdrawn")) "selected" else null}>Withdraw</option>
+                                    } else {
+                                        <option value="next_step" selected={if (std.mem.eql(u8, view.outcome_form.outcome, "next_step")) "selected" else null}>Next step</option>
+                                        <option value="rejected" selected={if (std.mem.eql(u8, view.outcome_form.outcome, "rejected")) "selected" else null}>Rejected</option>
+                                        <option value="withdrawn" selected={if (std.mem.eql(u8, view.outcome_form.outcome, "withdrawn")) "selected" else null}>Withdraw</option>
+                                    }
+                                </select>
+                            </label>
+                            <label>Reason<textarea name="reason" rows="3">{view.outcome_form.reason}</textarea></label>
+                            if (view.outcome_form.error_message) |message| { <p class="error">{message}</p> }
+                            <button type="submit">Save outcome</button>
+                        </form>
+                    </details>
                 }
                 if (view.can_skip) {
                     <form
@@ -46,6 +59,32 @@ pub templ StageCard(view: view_models.Stage) {
                     </form>
                 }
             </div>
+        }
+
+        if (view.outcome) |outcome| {
+            <p><strong>Outcome:</strong> {outcome}</p>
+            if (view.outcome_reason) |reason| { <p class="preserve-lines">{reason}</p> }
+        }
+
+        if (view.offer_compensation) |offer| {
+            <section class="stage-section offer-compensation">
+                <h4>Offer compensation</h4>
+                <p>{offer.display}</p>
+                <details class="inline-form">
+                    <summary>Edit offer</summary>
+                    <form method="post" action={offer.action} hx-post={offer.action} hx-target="#compensation-section" hx-swap="outerHTML">
+                        <div class="form-grid">
+                            <label>Minimum<input name="amount_min" inputmode="numeric" value={offer.form.minimum_value} /></label>
+                            <label>Maximum<input name="amount_max" inputmode="numeric" value={offer.form.maximum_value} /></label>
+                            <label>Currency<input name="currency" value={offer.form.input.currency} /></label>
+                            <label>Period<select name="period"><option value="">Not specified</option><option value="hour">Hour</option><option value="month">Month</option><option value="year">Year</option></select></label>
+                            <label>Type<select name="salary_type"><option value="">Not specified</option><option value="gross">Gross</option><option value="net">Net</option></select></label>
+                        </div>
+                        <label>Notes<textarea name="notes" rows="3">{offer.form.input.notes}</textarea></label>
+                        <button type="submit">Save offer</button>
+                    </form>
+                </details>
+            </section>
         }
 
         <section class="stage-section">
@@ -119,6 +158,46 @@ pub templ StageCard(view: view_models.Stage) {
                 </form>
             </details>
         </section>
+
+        if (view.show_learning_questions) {
+            <section class="stage-section">
+                <h4>Questions to learn</h4>
+                if (view.learning_questions.len == 0) {
+                    <p class="stage-empty">No learning questions yet.</p>
+                } else {
+                    <ul class="questions-list">
+                        for (view.learning_questions) |item| {
+                            <li>
+                                <p>{item.question}</p>
+                                if (item.answer) |answer| { <p class="muted preserve-lines">{answer}</p> }
+                                <div class="inline-actions">
+                                    <details class="inline-form">
+                                        <summary>Edit</summary>
+                                        <form method="post" action={item.edit_action} hx-post={item.edit_action} hx-target={view.target_id} hx-swap="outerHTML">
+                                            <label>Question<textarea name="question" rows="2">{item.question}</textarea></label>
+                                            <label>Study note<textarea name="answer" rows="3">{if (item.answer) |answer| answer else ""}</textarea></label>
+                                            <button type="submit">Save</button>
+                                        </form>
+                                    </details>
+                                    <form method="post" action={item.delete_action} hx-post={item.delete_action} hx-target={view.target_id} hx-swap="outerHTML">
+                                        <button class="secondary" type="submit">Delete</button>
+                                    </form>
+                                </div>
+                            </li>
+                        }
+                    </ul>
+                }
+                <details class="inline-form" open={if (view.learning_question_form.error_message != null) "open" else null}>
+                    <summary>Add learning question</summary>
+                    <form method="post" action={view.add_learning_question_action} hx-post={view.add_learning_question_action} hx-target={view.target_id} hx-swap="outerHTML">
+                        <label>Question<textarea name="question" rows="2">{view.learning_question_form.question}</textarea></label>
+                        <label>Study note<textarea name="answer" rows="3">{view.learning_question_form.answer}</textarea></label>
+                        if (view.learning_question_form.error_message) |message| { <p class="error">{message}</p> }
+                        <button type="submit">Add question</button>
+                    </form>
+                </details>
+            </section>
+        }
 
         <section class="stage-section">
             <h4>Interviews</h4>

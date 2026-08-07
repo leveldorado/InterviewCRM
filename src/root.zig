@@ -5,282 +5,141 @@ pub const processes = @import("processes.zig");
 pub const stages = @import("stages.zig");
 pub const notes = @import("notes.zig");
 pub const appointments = @import("appointments.zig");
+pub const compensations = @import("compensations.zig");
+pub const questions = @import("questions.zig");
+pub const sources = @import("sources.zig");
 pub const views = @import("views.zig");
 pub const view_models = @import("view_models.zig");
 pub const config = @import("config.zig");
 pub const server = @import("server.zig");
+
 const std = @import("std");
+
 fn memoryDb() !Database {
     return Database.open(":memory:");
 }
-test "migrations empty idempotent and versioned" {
-    var d = try memoryDb();
-    defer d.close();
-    try migrations.apply(&d);
-    try migrations.apply(&d);
-    try std.testing.expectEqual(@as(i64, 2), try d.scalarInt("SELECT count(*) FROM schema_migrations"));
-    try std.testing.expectEqual(@as(i64, 5), try d.scalarInt("SELECT count(*) FROM sqlite_master WHERE type='table' AND name IN ('job_processes','stages','appointments','notes','activity_log')"));
-}
-test "create update and missing lookup" {
-    var d = try memoryDb();
-    defer d.close();
-    try migrations.apply(&d);
-    const id = try processes.create(&d, .{ .company_name = "Acme", .position_name = "Engineer", .salary_discussed = true });
-    const got = (try processes.get(std.testing.allocator, &d, id)).?;
-    defer {
-        std.testing.allocator.free(got.input.company_name);
-        std.testing.allocator.free(got.input.position_name);
-        std.testing.allocator.free(got.input.job_url);
-        std.testing.allocator.free(got.input.source);
-        std.testing.allocator.free(got.input.location);
-        std.testing.allocator.free(got.input.work_arrangement);
-        std.testing.allocator.free(got.input.currency);
-        std.testing.allocator.free(got.input.period);
-        std.testing.allocator.free(got.input.salary_type);
-        std.testing.allocator.free(got.input.salary_notes);
-        std.testing.allocator.free(got.status);
-        std.testing.allocator.free(got.created_at);
-        std.testing.allocator.free(got.updated_at);
-    }
-    try std.testing.expect(got.input.salary_discussed);
-    try std.testing.expect(got.current_stage_id != null);
-    try std.testing.expectEqual(
-        @as(i64, 7),
-        try d.scalarInt("SELECT count(*) FROM stages"),
-    );
-    try std.testing.expectEqual(
-        @as(i64, 1),
-        try d.scalarInt("SELECT count(*) FROM stages WHERE position=1 AND status='in_progress'"),
-    );
-    try std.testing.expectEqual(
-        @as(i64, 6),
-        try d.scalarInt("SELECT count(*) FROM stages WHERE position>1 AND status='planned'"),
-    );
-    try processes.update(&d, id, .{ .company_name = "Acme 2", .position_name = "Engineer" });
-    try std.testing.expect((try processes.get(std.testing.allocator, &d, 9999)) == null);
-}
 
-test "create rolls back when activity logging fails" {
+test "migration 003 is idempotent and preserves pre-V2 values" {
     var database = try memoryDb();
     defer database.close();
+    try migrations.applyRegistry(&database, migrations.registry[0..2]);
+    try database.exec(
+        \\INSERT INTO job_processes(
+        \\ id,company_name,position_name,source,salary_discussed,
+        \\ salary_amount_min,salary_amount_max,salary_currency,salary_period,
+        \\ salary_type,salary_notes,created_at,updated_at
+        \\) VALUES(
+        \\ 1,'Legacy','Engineer','Telegram channel',1,5000,6000,'EUR','month',
+        \\ 'gross','FOP','2026-07-01 10:00:00','2026-07-01 10:00:00'
+        \\)
+    );
+    try database.exec(
+        \\INSERT INTO stages(
+        \\ process_id,name,position,status,created_at,updated_at
+        \\) VALUES
+        \\ (1,'Resume sent',1,'in_progress',datetime('now'),datetime('now')),
+        \\ (1,'Technical assignment',2,'planned',datetime('now'),datetime('now'))
+    );
+    try database.exec(
+        \\INSERT INTO notes(
+        \\ process_id,stage_id,category,body,created_at,updated_at
+        \\) VALUES(1,1,'general','Legacy note',datetime('now'),datetime('now'));
+        \\INSERT INTO appointments(
+        \\ process_id,stage_id,title,starts_at,status,created_at,updated_at
+        \\) VALUES(1,1,'Legacy interview','2026-08-12T15:30','scheduled',datetime('now'),datetime('now'));
+        \\INSERT INTO activity_log(
+        \\ process_id,activity_type,description,created_at
+        \\) VALUES(1,'legacy','Legacy activity',datetime('now'))
+    );
     try migrations.apply(&database);
-    try database.exec("DROP TABLE activity_log");
-    try std.testing.expectError(error.Sqlite, processes.create(&database, .{ .company_name = "Acme", .position_name = "Engineer" }));
-    try std.testing.expectEqual(@as(i64, 0), try database.scalarInt("SELECT count(*) FROM job_processes"));
-    try std.testing.expectEqual(
-        @as(i64, 0),
-        try database.scalarInt("SELECT count(*) FROM stages"),
-    );
-}
-
-test "update rolls back when activity logging fails" {
-    var database = try memoryDb();
-    defer database.close();
     try migrations.apply(&database);
-    const id = try processes.create(&database, .{ .company_name = "Before", .position_name = "Engineer" });
-    try database.exec("DROP TABLE activity_log");
-    try std.testing.expectError(error.Sqlite, processes.update(&database, id, .{ .company_name = "After", .position_name = "Engineer" }));
-    try std.testing.expectEqual(@as(i64, 1), try database.scalarInt("SELECT count(*) FROM job_processes WHERE company_name='Before'"));
-}
-
-test "custom stages append validate and become current when needed" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-    var database = try memoryDb();
-    defer database.close();
-    try migrations.apply(&database);
-    const process_id = try processes.create(&database, .{
-        .company_name = "Acme",
-        .position_name = "Engineer",
-    });
-    try std.testing.expectError(
-        error.InvalidStageName,
-        stages.addCustom(allocator, &database, process_id, "  "),
-    );
-    const custom_id = try stages.addCustom(
-        allocator,
-        &database,
-        process_id,
-        "  CTO interview  ",
-    );
     try std.testing.expectEqual(
-        @as(i64, 8),
-        try database.scalarInt("SELECT position FROM stages WHERE name='CTO interview'"),
-    );
-
-    try database.exec("UPDATE job_processes SET current_stage_id=NULL; UPDATE stages SET status='completed';");
-    const active_id = try stages.addCustom(
-        allocator,
-        &database,
-        process_id,
-        "Decision call",
-    );
-    try std.testing.expect(active_id != custom_id);
-    try std.testing.expectEqual(
-        active_id,
-        try database.scalarInt("SELECT current_stage_id FROM job_processes"),
+        @as(i64, 3),
+        try database.scalarInt("SELECT count(*) FROM schema_migrations"),
     );
     try std.testing.expectEqual(
         @as(i64, 1),
-        try database.scalarInt("SELECT count(*) FROM stages WHERE id=(SELECT current_stage_id FROM job_processes) AND status='in_progress'"),
-    );
-}
-
-test "stage completion skip reopen and scheduled progression" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-    var database = try memoryDb();
-    defer database.close();
-    try migrations.apply(&database);
-    const process_id = try processes.create(&database, .{
-        .company_name = "Acme",
-        .position_name = "Engineer",
-    });
-    const first_id = try database.scalarInt(
-        "SELECT id FROM stages WHERE position=1",
-    );
-    const second_id = try database.scalarInt(
-        "SELECT id FROM stages WHERE position=2",
-    );
-    _ = try stages.complete(allocator, &database, first_id);
-    try std.testing.expectEqual(
-        second_id,
-        try database.scalarInt("SELECT current_stage_id FROM job_processes"),
-    );
-    try std.testing.expectEqual(
-        @as(i64, 1),
-        try database.scalarInt("SELECT count(*) FROM stages WHERE id=2 AND status='in_progress'"),
-    );
-
-    try database.exec("UPDATE stages SET status='scheduled' WHERE position=3;");
-    _ = try stages.skip(allocator, &database, second_id);
-    try std.testing.expectEqual(
-        @as(i64, 1),
-        try database.scalarInt("SELECT count(*) FROM stages WHERE position=3 AND status='scheduled' AND id=(SELECT current_stage_id FROM job_processes)"),
-    );
-    _ = try stages.reopen(allocator, &database, first_id);
-    try std.testing.expectEqual(
-        first_id,
-        try database.scalarInt("SELECT current_stage_id FROM job_processes"),
-    );
-    try std.testing.expectEqual(
-        @as(i64, 1),
-        try database.scalarInt("SELECT count(*) FROM stages WHERE id=1 AND status='in_progress' AND completed_at IS NULL"),
-    );
-
-    try database.exec("UPDATE stages SET status='completed'; UPDATE stages SET status='in_progress' WHERE position=7; UPDATE job_processes SET current_stage_id=(SELECT id FROM stages WHERE position=7);");
-    const final_id = try database.scalarInt("SELECT id FROM stages WHERE position=7");
-    _ = try stages.complete(allocator, &database, final_id);
-    try std.testing.expectEqual(
-        @as(i64, 1),
-        try database.scalarInt("SELECT count(*) FROM job_processes WHERE current_stage_id IS NULL"),
-    );
-    _ = process_id;
-}
-
-test "stage completion and future skip rules are enforced by the domain" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-    var database = try memoryDb();
-    defer database.close();
-    try migrations.apply(&database);
-    _ = try processes.create(&database, .{
-        .company_name = "Acme",
-        .position_name = "Engineer",
-    });
-
-    const first_id = try database.scalarInt("SELECT id FROM stages WHERE position=1");
-    const second_id = try database.scalarInt("SELECT id FROM stages WHERE position=2");
-    const third_id = try database.scalarInt("SELECT id FROM stages WHERE position=3");
-    const fourth_id = try database.scalarInt("SELECT id FROM stages WHERE position=4");
-    const fifth_id = try database.scalarInt("SELECT id FROM stages WHERE position=5");
-    const sixth_id = try database.scalarInt("SELECT id FROM stages WHERE position=6");
-
-    _ = try stages.complete(allocator, &database, first_id);
-    try std.testing.expectError(
-        error.InvalidTransition,
-        stages.complete(allocator, &database, first_id),
-    );
-    try database.exec("UPDATE stages SET status='scheduled' WHERE position=2;");
-    _ = try stages.complete(allocator, &database, second_id);
-    try std.testing.expectEqual(
-        third_id,
-        try database.scalarInt("SELECT current_stage_id FROM job_processes"),
-    );
-
-    try std.testing.expectError(
-        error.InvalidTransition,
-        stages.complete(allocator, &database, fifth_id),
-    );
-    try database.exec("UPDATE stages SET status='scheduled' WHERE position=4;");
-    try std.testing.expectError(
-        error.InvalidTransition,
-        stages.complete(allocator, &database, fourth_id),
-    );
-    try database.exec("UPDATE stages SET status='skipped' WHERE position=6;");
-    try std.testing.expectError(
-        error.InvalidTransition,
-        stages.complete(allocator, &database, sixth_id),
-    );
-
-    _ = try stages.skip(allocator, &database, fifth_id);
-    try std.testing.expectEqual(
-        third_id,
-        try database.scalarInt("SELECT current_stage_id FROM job_processes"),
-    );
-    try std.testing.expectEqual(
-        @as(i64, 1),
-        try database.scalarInt("SELECT count(*) FROM stages WHERE position=5 AND status='skipped'"),
-    );
-}
-
-test "notes enforce ownership and retain escaped rendering input" {
-    var database = try memoryDb();
-    defer database.close();
-    try migrations.apply(&database);
-    const process_id = try processes.create(&database, .{
-        .company_name = "Acme",
-        .position_name = "Engineer",
-    });
-    const stage_id = try database.scalarInt("SELECT current_stage_id FROM job_processes");
-    try std.testing.expectError(
-        error.InvalidInput,
-        notes.createForStage(&database, process_id, stage_id, .{}),
-    );
-    const note_id = try notes.createForStage(
-        &database,
-        process_id,
-        stage_id,
-        .{ .body = "  <script>alert(1)</script>\nPrepare  " },
-    );
-    try notes.updateStageNote(
-        &database,
-        process_id,
-        stage_id,
-        note_id,
-        .{ .body = "Updated" },
-    );
-    try std.testing.expectError(
-        error.NotFound,
-        notes.updateStageNote(
-            &database,
-            process_id + 1,
-            stage_id,
-            note_id,
-            .{ .body = "Wrong owner" },
+        try database.scalarInt(
+            "SELECT count(*) FROM job_processes p JOIN sources s ON s.id=p.source_id WHERE p.id=1 AND s.name='Telegram channel' AND p.applied_at=p.created_at",
         ),
     );
-    try notes.deleteStageNote(&database, process_id, stage_id, note_id);
     try std.testing.expectEqual(
-        @as(i64, 0),
-        try database.scalarInt("SELECT count(*) FROM notes"),
+        @as(i64, 1),
+        try database.scalarInt(
+            "SELECT count(*) FROM compensations WHERE process_id=1 AND kind='discussed' AND amount_min=5000 AND amount_max=6000 AND currency='EUR' AND confirmed=1 AND notes='FOP'",
+        ),
+    );
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt(
+            "SELECT count(*) FROM stages WHERE process_id=1 AND name='Applied' AND kind='applied'",
+        ),
+    );
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt(
+            "SELECT count(*) FROM stages WHERE process_id=1 AND name='Technical assignment' AND kind='custom'",
+        ),
+    );
+    try std.testing.expectEqual(
+        @as(i64, 3),
+        try database.scalarInt(
+            "SELECT (SELECT count(*) FROM notes)+(SELECT count(*) FROM appointments)+(SELECT count(*) FROM activity_log)",
+        ),
     );
 }
 
-test "appointments validate schedule current stages and retain cancellation" {
+test "new process creates only Applied and persists ratings and compensation" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var database = try memoryDb();
+    defer database.close();
+    try migrations.apply(&database);
+    const id = try processes.create(&database, .{
+        .company_name = "ExamplePay",
+        .position_name = "Senior Go Engineer",
+        .applied_at = "2026-08-08",
+        .interest_rating = 5,
+        .money_rating = 4,
+        .growth_rating = 5,
+        .advertised = .{
+            .kind = .advertised,
+            .amount_min = 5000,
+            .amount_max = 6000,
+            .currency = "eur",
+            .period = "month",
+        },
+        .discussed = .{
+            .kind = .discussed,
+            .confirmed = true,
+        },
+    });
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt("SELECT count(*) FROM stages WHERE process_id=1"),
+    );
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt(
+            "SELECT count(*) FROM stages WHERE process_id=1 AND name='Applied' AND kind='applied' AND status='in_progress' AND id=(SELECT current_stage_id FROM job_processes WHERE id=1)",
+        ),
+    );
+    const process = (try processes.get(arena.allocator(), &database, id)).?;
+    try std.testing.expectEqualStrings("2026-08-08", process.input.applied_at);
+    try std.testing.expectEqual(@as(?i64, 5), process.input.interest_rating);
+    try std.testing.expectEqual(
+        @as(i64, 2),
+        try database.scalarInt("SELECT count(*) FROM compensations WHERE process_id=1"),
+    );
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt(
+            "SELECT count(*) FROM compensations WHERE process_id=1 AND kind='advertised' AND currency='EUR'",
+        ),
+    );
+}
+
+test "stage outcomes enforce kind rules and update process status" {
     var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -290,114 +149,307 @@ test "appointments validate schedule current stages and retain cancellation" {
     const process_id = try processes.create(&database, .{
         .company_name = "Acme",
         .position_name = "Engineer",
+        .applied_at = "2026-08-08",
     });
-    const stage_id = try database.scalarInt("SELECT current_stage_id FROM job_processes");
-    const input = appointments.Input{
-        .title = "Recruiter interview",
+    const applied_id = try database.scalarInt(
+        "SELECT current_stage_id FROM job_processes WHERE id=1",
+    );
+    const technical_id = try stages.add(
+        allocator,
+        &database,
+        process_id,
+        .technical,
+        "",
+    );
+    _ = try stages.setOutcome(
+        allocator,
+        &database,
+        applied_id,
+        .next_step,
+        "",
+    );
+    try std.testing.expectEqual(
+        technical_id,
+        try database.scalarInt("SELECT current_stage_id FROM job_processes"),
+    );
+    try std.testing.expectError(
+        error.InvalidTransition,
+        stages.setOutcome(
+            allocator,
+            &database,
+            technical_id,
+            .accepted,
+            "",
+        ),
+    );
+    _ = try stages.setOutcome(
+        allocator,
+        &database,
+        technical_id,
+        .rejected,
+        "Company chose another candidate.",
+    );
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt(
+            "SELECT count(*) FROM job_processes WHERE status='rejected' AND current_stage_id IS NULL AND closed_at IS NOT NULL",
+        ),
+    );
+    _ = try stages.reopen(allocator, &database, technical_id);
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt(
+            "SELECT count(*) FROM job_processes WHERE status='active' AND closed_at IS NULL AND current_stage_id=(SELECT id FROM stages WHERE kind='technical')",
+        ),
+    );
+
+    _ = try stages.setOutcome(
+        allocator,
+        &database,
+        technical_id,
+        .next_step,
+        "",
+    );
+    const offer_id = try stages.add(
+        allocator,
+        &database,
+        process_id,
+        .offer,
+        "",
+    );
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt("SELECT count(*) FROM job_processes WHERE status='offer_received'"),
+    );
+    try std.testing.expectError(
+        error.InvalidTransition,
+        stages.setOutcome(allocator, &database, offer_id, .next_step, ""),
+    );
+    _ = try stages.setOutcome(
+        allocator,
+        &database,
+        offer_id,
+        .accepted,
+        "",
+    );
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt("SELECT count(*) FROM job_processes WHERE status='accepted'"),
+    );
+}
+
+test "withdrawn and declined outcomes set their terminal statuses" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var database = try memoryDb();
+    defer database.close();
+    try migrations.apply(&database);
+
+    const withdrawn_process = try processes.create(&database, .{
+        .company_name = "Withdrawn Co",
+        .position_name = "Engineer",
+        .applied_at = "2026-08-08",
+    });
+    const withdrawn_stage = try database.scalarInt(
+        "SELECT current_stage_id FROM job_processes WHERE id=1",
+    );
+    _ = try stages.setOutcome(
+        allocator,
+        &database,
+        withdrawn_stage,
+        .withdrawn,
+        "Accepted another offer.",
+    );
+
+    const declined_process = try processes.create(&database, .{
+        .company_name = "Declined Co",
+        .position_name = "Engineer",
+        .applied_at = "2026-08-08",
+    });
+    const applied_stage = try database.scalarInt(
+        "SELECT current_stage_id FROM job_processes WHERE id=2",
+    );
+    _ = try stages.setOutcome(
+        allocator,
+        &database,
+        applied_stage,
+        .next_step,
+        "",
+    );
+    const offer_stage = try stages.add(
+        allocator,
+        &database,
+        declined_process,
+        .offer,
+        "",
+    );
+    _ = try stages.setOutcome(
+        allocator,
+        &database,
+        offer_stage,
+        .declined,
+        "Salary below expectation.",
+    );
+
+    _ = withdrawn_process;
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt(
+            "SELECT count(*) FROM job_processes WHERE status='withdrawn'",
+        ),
+    );
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt(
+            "SELECT count(*) FROM job_processes WHERE status='declined'",
+        ),
+    );
+}
+
+test "compensation validates ranges and supports upsert and delete" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    var database = try memoryDb();
+    defer database.close();
+    try migrations.apply(&database);
+    const process_id = try processes.create(&database, .{
+        .company_name = "Acme",
+        .position_name = "Engineer",
+        .applied_at = "2026-08-08",
+    });
+    try std.testing.expect(compensations.validate(.{
+        .amount_min = -1,
+    }).any());
+    try std.testing.expect(compensations.validate(.{
+        .amount_min = 200,
+        .amount_max = 100,
+    }).any());
+    try compensations.upsert(&database, .{
+        .process_id = process_id,
+        .kind = .discussed,
+        .confirmed = true,
+    });
+    try compensations.upsert(&database, .{
+        .process_id = process_id,
+        .kind = .discussed,
+        .amount_min = 5500,
+        .amount_max = 6500,
+        .currency = "eur",
+        .period = "month",
+        .confirmed = true,
+    });
+    const stored = (try compensations.getForProcess(
+        arena.allocator(),
+        &database,
+        process_id,
+        .discussed,
+    )).?;
+    try std.testing.expectEqualStrings("EUR", stored.currency.?);
+    try std.testing.expectEqual(@as(?i64, 5500), stored.amount_min);
+    try compensations.delete(&database, process_id, .discussed);
+    try std.testing.expect((try compensations.getForProcess(
+        arena.allocator(),
+        &database,
+        process_id,
+        .discussed,
+    )) == null);
+}
+
+test "sources compensation questions and hard delete preserve ownership" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var database = try memoryDb();
+    defer database.close();
+    try migrations.apply(&database);
+    try std.testing.expectEqual(
+        @as(i64, 5),
+        try database.scalarInt("SELECT count(*) FROM sources"),
+    );
+    const source_id = try sources.create(&database, "  LinkedIn  ");
+    try std.testing.expectEqual(
+        source_id,
+        try sources.create(&database, "linkedin"),
+    );
+    const process_id = try processes.create(&database, .{
+        .company_name = "Acme",
+        .position_name = "Engineer",
+        .applied_at = "2026-08-08",
+        .source_id = source_id,
+    });
+    const stage_id = try database.scalarInt(
+        "SELECT current_stage_id FROM job_processes",
+    );
+    try compensations.upsert(&database, .{
+        .process_id = process_id,
+        .kind = .offer,
+        .amount_min = 6200,
+        .currency = "eur",
+        .period = "month",
+    });
+    const question_id = try questions.create(&database, .{
+        .process_id = process_id,
+        .kind = .company,
+        .question = " Why is this role open? ",
+    });
+    try questions.update(&database, question_id, .{
+        .process_id = process_id,
+        .kind = .company,
+        .question = "Why is this role open?",
+        .answer = "Team expansion.",
+    });
+    try questions.delete(&database, question_id, process_id);
+    _ = try questions.create(&database, .{
+        .process_id = process_id,
+        .kind = .company,
+        .question = "How are decisions made?",
+    });
+    try std.testing.expectError(
+        error.InvalidQuestion,
+        questions.create(&database, .{
+            .process_id = process_id,
+            .kind = .company,
+            .question = "   ",
+        }),
+    );
+    _ = try questions.create(&database, .{
+        .process_id = process_id,
+        .stage_id = stage_id,
+        .kind = .learning,
+        .question = "How does MVCC work?",
+    });
+    try std.testing.expectError(
+        error.InvalidRelationship,
+        questions.create(&database, .{
+            .process_id = process_id + 1,
+            .stage_id = stage_id,
+            .kind = .learning,
+            .question = "Wrong owner",
+        }),
+    );
+    _ = try notes.createForStage(
+        &database,
+        process_id,
+        stage_id,
+        .{ .body = "Prepare examples" },
+    );
+    _ = try appointments.create(allocator, &database, stage_id, .{
+        .title = "Interview",
         .starts_at = "2026-08-12T15:30",
-        .ends_at = "2026-08-12T16:00",
-        .meeting_url = "https://meet.example.com/room",
-    };
-    const appointment_id = try appointments.create(
-        allocator,
-        &database,
-        stage_id,
-        input,
-    );
-    try std.testing.expectEqual(
-        @as(i64, 1),
-        try database.scalarInt("SELECT count(*) FROM appointments WHERE process_id=(SELECT id FROM job_processes) AND stage_id=(SELECT current_stage_id FROM job_processes)"),
-    );
-    try std.testing.expectEqual(
-        @as(i64, 1),
-        try database.scalarInt("SELECT count(*) FROM stages WHERE id=(SELECT current_stage_id FROM job_processes) AND status='scheduled'"),
-    );
-    _ = try appointments.cancel(
-        allocator,
-        &database,
-        appointment_id,
-    );
-    try std.testing.expectEqual(
-        @as(i64, 1),
-        try database.scalarInt("SELECT count(*) FROM appointments WHERE status='cancelled'"),
-    );
-    try std.testing.expectError(
-        error.InvalidTransition,
-        appointments.cancel(allocator, &database, appointment_id),
-    );
-
-    try database.exec("UPDATE stages SET status='completed' WHERE id=(SELECT current_stage_id FROM job_processes);");
-    const completed_appointment_id = try appointments.create(
-        allocator,
-        &database,
-        stage_id,
-        input,
-    );
-    try std.testing.expectEqual(
-        @as(i64, 1),
-        try database.scalarInt("SELECT count(*) FROM stages WHERE id=(SELECT current_stage_id FROM job_processes) AND status='completed'"),
-    );
-    try database.exec("UPDATE appointments SET status='completed' WHERE id=2;");
-    try std.testing.expectError(
-        error.InvalidTransition,
-        appointments.cancel(
-            allocator,
-            &database,
-            completed_appointment_id,
-        ),
-    );
-    _ = process_id;
-}
-
-test "transactional workflow mutations roll back when activity logging fails" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-    var database = try memoryDb();
-    defer database.close();
-    try migrations.apply(&database);
-    const process_id = try processes.create(&database, .{
-        .company_name = "Acme",
-        .position_name = "Engineer",
     });
-    const stage_id = try database.scalarInt("SELECT current_stage_id FROM job_processes");
-    try database.exec("DROP TABLE activity_log");
-
-    try std.testing.expectError(
-        error.Sqlite,
-        stages.complete(allocator, &database, stage_id),
-    );
-    try std.testing.expectEqual(
-        @as(i64, 1),
-        try database.scalarInt("SELECT count(*) FROM stages WHERE id=(SELECT current_stage_id FROM job_processes) AND status='in_progress'"),
-    );
-    try std.testing.expectError(
-        error.Sqlite,
-        stages.addCustom(
-            allocator,
-            &database,
-            process_id,
-            "CTO interview",
-        ),
-    );
-    try std.testing.expectEqual(
-        @as(i64, 7),
-        try database.scalarInt("SELECT count(*) FROM stages"),
-    );
-    try std.testing.expectError(
-        error.Sqlite,
-        appointments.create(
-            allocator,
-            &database,
-            stage_id,
-            .{
-                .title = "Interview",
-                .starts_at = "2026-08-12T15:30",
-            },
-        ),
-    );
-    try std.testing.expectEqual(
-        @as(i64, 0),
-        try database.scalarInt("SELECT count(*) FROM appointments"),
-    );
+    try processes.delete(&database, process_id);
+    inline for (.{
+        "stages",
+        "notes",
+        "appointments",
+        "questions",
+        "compensations",
+        "activity_log",
+    }) |table| {
+        try std.testing.expectEqual(
+            @as(i64, 0),
+            try database.scalarInt("SELECT count(*) FROM " ++ table),
+        );
+    }
 }

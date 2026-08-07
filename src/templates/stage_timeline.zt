@@ -3,36 +3,33 @@ const view_models = @import("../view_models.zig");
 
 pub templ StageTimeline(view: view_models.StageTimeline) {
     <section id="stage-timeline" class="panel stage-timeline">
-        <div class="section-heading">
-            <h2>Interview stages</h2>
-        </div>
-
+        <div class="section-heading"><h2>Interview process</h2></div>
         <div class="stage-list">
-            for (view.stages) |stage| {
-                @stage_card.StageCard(stage)
-            }
+            for (view.stages) |stage| { @stage_card.StageCard(stage) }
         </div>
-
-        <details class="inline-form" open={if (view.add_stage.error_message != null) "open" else null}>
-            <summary>Add custom stage</summary>
-            <form
-                method="post"
-                action={view.add_stage_action}
-                hx-post={view.add_stage_action}
-                hx-target="#stage-timeline"
-                hx-swap="outerHTML"
-            >
-                <label for="stage-name">Stage name</label>
-                <input
-                    id="stage-name"
-                    name="name"
-                    maxlength="120"
-                    value={view.add_stage.name}
-                    class={if (view.add_stage.error_message != null) "field-error" else null}
-                />
-                if (view.add_stage.error_message) |message| {
-                    <p class="error">{message}</p>
-                }
+        if (view.current_stage_id == null) {
+            <p class="attention">There is no current stage. Add next stage.</p>
+        }
+        <details class="inline-form" open={if (view.add_stage.error_message != null or view.current_stage_id == null) "open" else null}>
+            <summary>Add next stage</summary>
+            <form method="post" action={view.add_stage_action} hx-post={view.add_stage_action} hx-target="#stage-timeline" hx-swap="outerHTML">
+                <label>
+                    Stage type
+                    <select name="kind">
+                        <option value="hr" selected={if (std.mem.eql(u8, view.add_stage.kind, "hr")) "selected" else null}>HR Interview</option>
+                        <option value="technical" selected={if (std.mem.eql(u8, view.add_stage.kind, "technical")) "selected" else null}>Technical Interview</option>
+                        <option value="system_design" selected={if (std.mem.eql(u8, view.add_stage.kind, "system_design")) "selected" else null}>System Design Interview</option>
+                        <option value="cultural_fit" selected={if (std.mem.eql(u8, view.add_stage.kind, "cultural_fit")) "selected" else null}>Cultural Fit</option>
+                        <option value="cto" selected={if (std.mem.eql(u8, view.add_stage.kind, "cto")) "selected" else null}>CTO Interview</option>
+                        <option value="offer" selected={if (std.mem.eql(u8, view.add_stage.kind, "offer")) "selected" else null}>Offer</option>
+                        <option value="custom" selected={if (std.mem.eql(u8, view.add_stage.kind, "custom")) "selected" else null}>Custom</option>
+                    </select>
+                </label>
+                <label>
+                    Custom stage name
+                    <input name="name" maxlength="120" value={view.add_stage.name} />
+                </label>
+                if (view.add_stage.error_message) |message| { <p class="error">{message}</p> }
                 <button type="submit">Add stage</button>
             </form>
         </details>

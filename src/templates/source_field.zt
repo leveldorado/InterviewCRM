@@ -1,0 +1,29 @@
+const view_models = @import("../view_models.zig");
+
+pub templ SourceField(view: view_models.SourceField) {
+    <section id="source-field" class="field">
+        <label for="source-id">Source</label>
+        <select id="source-id" name="source_id">
+            <option value="">Not specified</option>
+            for (view.options) |option| {
+                <option value={option.id_value} selected={if (option.selected) "selected" else null}>{option.name}</option>
+            }
+        </select>
+        <details class="inline-form" open={if (view.error_message != null) "open" else null}>
+            <summary>Add source</summary>
+            <label for="new-source">Source name</label>
+            <input id="new-source" name="new_source" maxlength="120" value={view.new_source} />
+            if (view.error_message) |message| {
+                <p class="error">{message}</p>
+            }
+            <button
+                type="submit"
+                formaction="/sources"
+                hx-post="/sources"
+                hx-include="closest form"
+                hx-target="#source-field"
+                hx-swap="outerHTML"
+            >Add source</button>
+        </details>
+    </section>
+}

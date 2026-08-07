@@ -66,7 +66,12 @@ button {
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 0.6rem;
+}
+
+.danger {
+  background: #9f1d20;
 }
 
 button:disabled {
@@ -87,6 +92,12 @@ button:disabled {
   background: white;
   border: 1px solid #dce1e4;
   border-radius: 0.5rem;
+}
+
+.compensation-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
 }
 
 .empty {
@@ -121,6 +132,29 @@ label {
   display: block;
   margin-bottom: 0.25rem;
   font-weight: 650;
+}
+
+fieldset {
+  padding: 1rem;
+  margin: 0 0 1rem;
+  border: 1px solid #dce1e4;
+  border-radius: 0.5rem;
+}
+
+legend {
+  padding: 0 0.4rem;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.ratings-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 input,
@@ -169,6 +203,25 @@ button:focus {
 
 .facts dt {
   font-weight: 650;
+}
+
+.muted,
+.attention {
+  color: #5f6870;
+}
+
+.attention {
+  padding: 0.75rem;
+  background: #fff5d6;
+  border-radius: 0.35rem;
+}
+
+.preserve-lines {
+  white-space: pre-wrap;
+}
+
+.danger-zone {
+  border-color: #cf8c8e;
 }
 
 /* Interview stage timeline */
@@ -271,12 +324,14 @@ button:focus {
   color: #5f6870;
 }
 
-.notes-list {
+.notes-list,
+.questions-list {
   padding: 0;
   list-style: none;
 }
 
 .notes-list li,
+.questions-list li,
 .appointment-card {
   padding: 0.8rem;
   margin-bottom: 0.75rem;
@@ -348,7 +403,10 @@ button:focus {
 
 /* Responsive styles */
 @media (max-width: 700px) {
-  .grid {
+  .grid,
+  .form-grid,
+  .ratings-grid,
+  .compensation-grid {
     grid-template-columns: 1fr;
   }
 

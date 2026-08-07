@@ -1,5 +1,6 @@
 const layout = @import("layout.zig");
 const components = @import("components.zig");
+const source_field = @import("source_field.zig");
 const view_models = @import("../view_models.zig");
 
 pub templ ProcessForm(view: view_models.ProcessForm) {
@@ -14,115 +15,98 @@ pub templ ProcessForm(view: view_models.ProcessForm) {
             hx-indicator="#process-form-indicator"
             hx-disabled-elt="find button[type='submit']"
         >
-            @components.Field(
-                "company_name",
-                "Company name",
-                "text",
-                @as(?[]const u8, null),
-                view.input.company_name,
-                view.errors.company,
-                if (view.errors.company != null) @as(?[]const u8, "company_name-error") else null,
-            )
-            @components.Field(
-                "position_name",
-                "Position name",
-                "text",
-                @as(?[]const u8, null),
-                view.input.position_name,
-                view.errors.position,
-                if (view.errors.position != null) @as(?[]const u8, "position_name-error") else null,
-            )
-            @components.Field(
-                "job_url",
-                "Job URL",
-                "url",
-                @as(?[]const u8, null),
-                view.input.job_url,
-                view.errors.url,
-                if (view.errors.url != null) @as(?[]const u8, "job_url-error") else null,
-            )
-            @components.Field(
-                "source",
-                "Source",
-                "text",
-                @as(?[]const u8, null),
-                view.input.source,
-                @as(?[]const u8, null),
-                @as(?[]const u8, null),
-            )
-            @components.Field(
-                "location",
-                "Location",
-                "text",
-                @as(?[]const u8, null),
-                view.input.location,
-                @as(?[]const u8, null),
-                @as(?[]const u8, null),
-            )
-            @components.Field(
-                "work_arrangement",
-                "Work arrangement",
-                "text",
-                @as(?[]const u8, null),
-                view.input.work_arrangement,
-                @as(?[]const u8, null),
-                @as(?[]const u8, null),
-            )
-            <div class="field">
-                <label class="check">
-                    <input name="salary_discussed" type="checkbox" value="1" checked={if (view.input.salary_discussed) "checked" else null} />
-                    Salary discussed
+            <fieldset>
+                <legend>Job</legend>
+                @components.Field(
+                    "company_name",
+                    "Company name",
+                    "text",
+                    @as(?[]const u8, null),
+                    view.input.company_name,
+                    view.errors.company,
+                    if (view.errors.company != null) @as(?[]const u8, "company_name-error") else null,
+                )
+                @components.Field(
+                    "position_name",
+                    "Position name",
+                    "text",
+                    @as(?[]const u8, null),
+                    view.input.position_name,
+                    view.errors.position,
+                    if (view.errors.position != null) @as(?[]const u8, "position_name-error") else null,
+                )
+                @components.Field(
+                    "job_url",
+                    "Job posting URL",
+                    "url",
+                    @as(?[]const u8, null),
+                    view.input.job_url,
+                    view.errors.url,
+                    if (view.errors.url != null) @as(?[]const u8, "job_url-error") else null,
+                )
+                <label>
+                    About the company
+                    <textarea name="company_summary" rows="5">{view.input.company_summary}</textarea>
                 </label>
-            </div>
-            @components.Field(
-                "salary_min",
-                "Minimum salary",
-                "text",
-                @as(?[]const u8, "numeric"),
-                view.salary_min_value,
-                view.errors.salary_min,
-                if (view.errors.salary_min != null) @as(?[]const u8, "salary_min-error") else null,
-            )
-            @components.Field(
-                "salary_max",
-                "Maximum salary",
-                "text",
-                @as(?[]const u8, "numeric"),
-                view.salary_max_value,
-                view.errors.salary_max,
-                if (view.errors.salary_max != null) @as(?[]const u8, "salary_max-error") else null,
-            )
-            @components.Field(
-                "currency",
-                "Currency code",
-                "text",
-                @as(?[]const u8, null),
-                view.input.currency,
-                @as(?[]const u8, null),
-                @as(?[]const u8, null),
-            )
-            @components.Field(
-                "period",
-                "Salary period",
-                "text",
-                @as(?[]const u8, null),
-                view.input.period,
-                @as(?[]const u8, null),
-                @as(?[]const u8, null),
-            )
-            @components.Field(
-                "salary_type",
-                "Salary type",
-                "text",
-                @as(?[]const u8, null),
-                view.input.salary_type,
-                @as(?[]const u8, null),
-                @as(?[]const u8, null),
-            )
-            <div class="field">
-                <label for="salary_notes">Salary notes</label>
-                <textarea id="salary_notes" name="salary_notes" rows="4">{view.input.salary_notes}</textarea>
-            </div>
+                @components.Field(
+                    "applied_at",
+                    "Application date",
+                    "date",
+                    @as(?[]const u8, null),
+                    view.input.applied_at,
+                    view.errors.applied_at,
+                    if (view.errors.applied_at != null) @as(?[]const u8, "applied_at-error") else null,
+                )
+                @source_field.SourceField(view.source_field)
+                @components.Field(
+                    "location",
+                    "Location",
+                    "text",
+                    @as(?[]const u8, null),
+                    view.input.location,
+                    @as(?[]const u8, null),
+                    @as(?[]const u8, null),
+                )
+                @components.Field(
+                    "work_arrangement",
+                    "Work arrangement",
+                    "text",
+                    @as(?[]const u8, null),
+                    view.input.work_arrangement,
+                    @as(?[]const u8, null),
+                    @as(?[]const u8, null),
+                )
+            </fieldset>
+
+            <fieldset>
+                <legend>My rating</legend>
+                <div class="form-grid ratings-grid">
+                    @RatingField("interest_rating", "Interest", view.interest_value, view.errors.interest_rating)
+                    @RatingField("money_rating", "Money", view.money_value, view.errors.money_rating)
+                    @RatingField("growth_rating", "Growth", view.growth_value, view.errors.growth_rating)
+                </div>
+            </fieldset>
+
+            <fieldset>
+                <legend>Compensation at application</legend>
+                <h2>Salary in job posting</h2>
+                @InitialCompensationFields(
+                    "advertised",
+                    view.advertised,
+                    false,
+                )
+            </fieldset>
+
+            <fieldset>
+                <legend>Compensation discussed</legend>
+                <h2>Salary discussed</h2>
+                @InitialCompensationFields(
+                    "discussed",
+                    view.discussed,
+                    true,
+                )
+            </fieldset>
+
             <div class="actions">
                 <button type="submit">Save process</button>
                 <span id="process-form-indicator" class="htmx-indicator" aria-live="polite">Saving…</span>
@@ -132,10 +116,71 @@ pub templ ProcessForm(view: view_models.ProcessForm) {
     </section>
 }
 
-pub templ ProcessFormPage(view: view_models.ProcessForm) {
-    @layout.Layout(view.title) {
-        @ProcessForm(view)
+templ RatingField(name: []const u8, label: []const u8, value: []const u8, error_message: ?[]const u8) {
+    <label>
+        {label}
+        <select name={name}>
+            <option value="" selected={if (value.len == 0) "selected" else null}>Not rated</option>
+            <option value="1" selected={if (std.mem.eql(u8, value, "1")) "selected" else null}>1</option>
+            <option value="2" selected={if (std.mem.eql(u8, value, "2")) "selected" else null}>2</option>
+            <option value="3" selected={if (std.mem.eql(u8, value, "3")) "selected" else null}>3</option>
+            <option value="4" selected={if (std.mem.eql(u8, value, "4")) "selected" else null}>4</option>
+            <option value="5" selected={if (std.mem.eql(u8, value, "5")) "selected" else null}>5</option>
+        </select>
+        if (error_message) |message| {
+            <span class="error">{message}</span>
+        }
+    </label>
+}
+
+templ InitialCompensationFields(prefix: []const u8, view: view_models.CompensationForm, show_confirmed: bool) {
+    <div class="form-grid">
+        <label>
+            Minimum
+            <input name={if (std.mem.eql(u8, prefix, "advertised")) "advertised_amount_min" else "discussed_amount_min"} inputmode="numeric" value={view.minimum_value} />
+            if (view.errors.amount_min) |message| { <span class="error">{message}</span> }
+        </label>
+        <label>
+            Maximum
+            <input name={if (std.mem.eql(u8, prefix, "advertised")) "advertised_amount_max" else "discussed_amount_max"} inputmode="numeric" value={view.maximum_value} />
+            if (view.errors.amount_max) |message| { <span class="error">{message}</span> }
+        </label>
+        <label>
+            Currency
+            <input name={if (std.mem.eql(u8, prefix, "advertised")) "advertised_currency" else "discussed_currency"} value={view.input.currency} />
+        </label>
+        <label>
+            Period
+            <select name={if (std.mem.eql(u8, prefix, "advertised")) "advertised_period" else "discussed_period"}>
+                <option value="" selected={if (view.input.period.len == 0) "selected" else null}>Not specified</option>
+                <option value="hour" selected={if (std.mem.eql(u8, view.input.period, "hour")) "selected" else null}>Hour</option>
+                <option value="month" selected={if (std.mem.eql(u8, view.input.period, "month")) "selected" else null}>Month</option>
+                <option value="year" selected={if (std.mem.eql(u8, view.input.period, "year")) "selected" else null}>Year</option>
+            </select>
+        </label>
+        <label>
+            Type
+            <select name={if (std.mem.eql(u8, prefix, "advertised")) "advertised_salary_type" else "discussed_salary_type"}>
+                <option value="" selected={if (view.input.salary_type.len == 0) "selected" else null}>Not specified</option>
+                <option value="gross" selected={if (std.mem.eql(u8, view.input.salary_type, "gross")) "selected" else null}>Gross</option>
+                <option value="net" selected={if (std.mem.eql(u8, view.input.salary_type, "net")) "selected" else null}>Net</option>
+            </select>
+        </label>
+    </div>
+    if (show_confirmed) {
+        <label class="check">
+            <input name="discussed_confirmed" type="checkbox" value="1" checked={if (view.input.confirmed) "checked" else null} />
+            Confirmed
+        </label>
     }
+    <label>
+        Notes
+        <textarea name={if (std.mem.eql(u8, prefix, "advertised")) "advertised_notes" else "discussed_notes"} rows="3">{view.input.notes}</textarea>
+    </label>
+}
+
+pub templ ProcessFormPage(view: view_models.ProcessForm) {
+    @layout.Layout(view.title) { @ProcessForm(view) }
 }
 
 pub templ ProcessFormFragment(view: view_models.ProcessForm) {

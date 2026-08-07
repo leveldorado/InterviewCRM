@@ -1,5 +1,7 @@
 const layout = @import("layout.zig");
 const components = @import("components.zig");
+const compensation = @import("compensation.zig");
+const company_questions = @import("company_questions.zig");
 const stage_timeline = @import("stage_timeline.zig");
 const view_models = @import("../view_models.zig");
 
@@ -8,19 +10,27 @@ pub templ ProcessDetailContent(view: view_models.ProcessDetail) {
         <a class="secondary" href="/">← Dashboard</a>
         <a class="button" href={view.edit_url}>Edit process</a>
     </div>
-    <section class="panel">
+    <section class="panel process-hero">
         <h1>{view.company_name}</h1>
         <h2>{view.position_name}</h2>
+        <p><span class="badge">{view.status}</span> · Applied {view.applied_at}</p>
+        <dl class="facts ratings-facts">
+            @components.Fact("Interest", view.interest)
+            @components.Fact("Money", view.money)
+            @components.Fact("Growth", view.growth)
+        </dl>
+        <h3>About the company</h3>
+        if (view.company_summary.len > 0) {
+            <p class="preserve-lines">{view.company_summary}</p>
+        } else {
+            <p class="muted">Not recorded.</p>
+        }
         <dl class="facts">
-            @components.Fact("Status", view.status)
             @components.Fact("Source", view.source)
             @components.Fact("Location", view.location)
             @components.Fact("Work arrangement", view.work_arrangement)
-            @components.Fact("Salary notes", view.salary_notes)
-            @components.Fact("Created", view.created_at)
             @components.Fact("Last updated", view.updated_at)
-            @components.Fact("Salary", view.salary_display)
-            <dt>Job URL</dt>
+            <dt>Job posting</dt>
             <dd>
                 if (view.job_url) |job_url| {
                     <a rel="noopener noreferrer" href={job_url} hx-boost="false">{job_url}</a>
@@ -30,19 +40,25 @@ pub templ ProcessDetailContent(view: view_models.ProcessDetail) {
             </dd>
         </dl>
     </section>
+    @compensation.CompensationSection(view.compensation)
     @stage_timeline.StageTimeline(view.timeline)
-    <section class="panel">
-        <h2>Notes</h2>
-        @components.EmptyState(
-            "Notes will be added in a later release.",
-        )
+    @company_questions.CompanyQuestions(view.company_questions)
+    <section class="panel danger-zone">
+        <h2>Danger zone</h2>
+        <p>This permanently deletes the job process and all stages, notes, questions, appointments and compensation records.</p>
+        <form
+            method="post"
+            action={view.delete_url}
+            hx-post={view.delete_url}
+            hx-confirm="Delete this job process and all associated data?"
+        >
+            <button class="danger" type="submit">Delete job process</button>
+        </form>
     </section>
 }
 
 pub templ ProcessDetailPage(view: view_models.ProcessDetail) {
-    @layout.Layout(view.title) {
-        @ProcessDetailContent(view)
-    }
+    @layout.Layout(view.title) { @ProcessDetailContent(view) }
 }
 
 pub templ ProcessDetailFragment(view: view_models.ProcessDetail) {

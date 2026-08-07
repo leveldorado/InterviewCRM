@@ -1,0 +1,87 @@
+const view_models = @import("../view_models.zig");
+
+pub templ CompensationFields(view: view_models.CompensationForm, show_confirmed: bool) {
+    <div class="form-grid">
+        <label>
+            Minimum
+            <input name="amount_min" inputmode="numeric" value={view.minimum_value} />
+            if (view.errors.amount_min) |message| {
+                <span class="error">{message}</span>
+            }
+        </label>
+        <label>
+            Maximum
+            <input name="amount_max" inputmode="numeric" value={view.maximum_value} />
+            if (view.errors.amount_max) |message| {
+                <span class="error">{message}</span>
+            }
+        </label>
+        <label>
+            Currency
+            <input name="currency" maxlength="12" value={view.input.currency} />
+        </label>
+        <label>
+            Period
+            <select name="period">
+                <option value="" selected={if (view.input.period.len == 0) "selected" else null}>Not specified</option>
+                <option value="hour" selected={if (std.mem.eql(u8, view.input.period, "hour")) "selected" else null}>Hour</option>
+                <option value="month" selected={if (std.mem.eql(u8, view.input.period, "month")) "selected" else null}>Month</option>
+                <option value="year" selected={if (std.mem.eql(u8, view.input.period, "year")) "selected" else null}>Year</option>
+            </select>
+            if (view.errors.period) |message| {
+                <span class="error">{message}</span>
+            }
+        </label>
+        <label>
+            Type
+            <select name="salary_type">
+                <option value="" selected={if (view.input.salary_type.len == 0) "selected" else null}>Not specified</option>
+                <option value="gross" selected={if (std.mem.eql(u8, view.input.salary_type, "gross")) "selected" else null}>Gross</option>
+                <option value="net" selected={if (std.mem.eql(u8, view.input.salary_type, "net")) "selected" else null}>Net</option>
+            </select>
+            if (view.errors.salary_type) |message| {
+                <span class="error">{message}</span>
+            }
+        </label>
+    </div>
+    if (show_confirmed) {
+        <label class="check">
+            <input name="confirmed" type="checkbox" value="1" checked={if (view.input.confirmed) "checked" else null} />
+            Confirmed
+        </label>
+    }
+    <label>
+        Notes
+        <textarea name="notes" rows="3">{view.input.notes}</textarea>
+    </label>
+}
+
+pub templ CompensationSection(view: view_models.CompensationSection) {
+    <section id="compensation-section" class="panel">
+        <h2>Compensation</h2>
+        <div class="compensation-grid">
+            for (view.snapshots) |snapshot| {
+                <article>
+                    <h3>{snapshot.label}</h3>
+                    <p>{snapshot.display}</p>
+                    if (snapshot.notes) |notes| {
+                        <p class="muted">{notes}</p>
+                    }
+                    <details class="inline-form" open={if (snapshot.form.errors.any()) "open" else null}>
+                        <summary>Edit {snapshot.label}</summary>
+                        <form
+                            method="post"
+                            action={snapshot.action}
+                            hx-post={snapshot.action}
+                            hx-target="#compensation-section"
+                            hx-swap="outerHTML"
+                        >
+                            @CompensationFields(snapshot.form, snapshot.show_confirmed)
+                            <button type="submit">Save compensation</button>
+                        </form>
+                    </details>
+                </article>
+            }
+        </div>
+    </section>
+}

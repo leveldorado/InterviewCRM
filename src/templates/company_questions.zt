@@ -1,0 +1,45 @@
+const view_models = @import("../view_models.zig");
+
+pub templ CompanyQuestions(view: view_models.QuestionSection) {
+    <section id="company-questions" class="panel">
+        <h2>Questions to company</h2>
+        if (view.questions.len == 0) {
+            <p class="stage-empty">No questions yet.</p>
+        } else {
+            <ul class="questions-list">
+                for (view.questions) |item| {
+                    <li>
+                        <p><strong>Q:</strong> {item.question}</p>
+                        if (item.answer) |answer| {
+                            <p><strong>A:</strong> {answer}</p>
+                        } else {
+                            <p class="muted">No answer yet.</p>
+                        }
+                        <details class="inline-form">
+                            <summary>Edit</summary>
+                            <form method="post" action={item.edit_action} hx-post={item.edit_action} hx-target="#company-questions" hx-swap="outerHTML">
+                                <label>Question<textarea name="question" rows="2">{item.question}</textarea></label>
+                                <label>Answer<textarea name="answer" rows="3">{if (item.answer) |answer| answer else ""}</textarea></label>
+                                <button type="submit">Save</button>
+                            </form>
+                        </details>
+                        <form method="post" action={item.delete_action} hx-post={item.delete_action} hx-target="#company-questions" hx-swap="outerHTML">
+                            <button class="secondary" type="submit">Delete</button>
+                        </form>
+                    </li>
+                }
+            </ul>
+        }
+        <details class="inline-form" open={if (view.error_message != null) "open" else null}>
+            <summary>Add question</summary>
+            <form method="post" action={view.add_action} hx-post={view.add_action} hx-target="#company-questions" hx-swap="outerHTML">
+                <label>Question<textarea name="question" rows="2">{view.question_value}</textarea></label>
+                <label>Answer<textarea name="answer" rows="3">{view.answer_value}</textarea></label>
+                if (view.error_message) |message| {
+                    <p class="error">{message}</p>
+                }
+                <button type="submit">Add question</button>
+            </form>
+        </details>
+    </section>
+}

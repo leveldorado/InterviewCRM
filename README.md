@@ -1,16 +1,30 @@
 # Interview CRM
 
-Interview CRM is a private, single-user job-search tracker that runs locally and stores its data in SQLite. Version 0.1 provides job-process tracking and the core interview workflow.
+Interview CRM is a private, single-user job-search tracker that runs locally and stores its data in SQLite.
 
 ## Implemented
 
-- Job processes
-- Default interview stages
-- Custom stages
-- Stage progression
+- Job processes with company and role details
+- Company summaries and application dates
+- Database-backed custom sources
+- Interest, money, and growth ratings
+- Advertised, discussed, and offer compensation snapshots
+- Flexible interview stages and meaningful stage outcomes
 - Stage notes
+- Company and learning questions with answers
 - Interview scheduling
 - Appointment cancellation
+- Permanent process deletion with cascading child-data cleanup
+
+## Flexible workflow
+
+Only the Applied stage is created automatically. Every later stage is optional, duplicate stage kinds are allowed, and stages can be added in the order used by the company. For example, both `Applied → Technical Interview → CTO Interview → Offer` and `Applied → HR Interview → Technical Interview → System Design Interview → Cultural Fit → Offer` are valid.
+
+Stage outcomes keep the process and the individual interview history distinct. Applied and interview stages support Next step, Rejected, and Withdrawn. Offer supports Accepted, Declined, and Withdrawn. Completed history can be reopened to correct a mistake.
+
+## Legacy migration
+
+Databases created before Job Model V2 retain their existing processes, stage history, notes, appointments, activity entries, source values, and salary values. Existing source text is migrated into the `sources` table and existing salary information becomes a discussed compensation snapshot. The old source and salary columns remain physically present in SQLite for migration compatibility, but the application no longer reads or writes them.
 
 ## Not yet implemented
 
@@ -18,7 +32,6 @@ Interview CRM is a private, single-user job-search tracker that runs locally and
 - Day/week interview dashboard
 - Appointment editing and rescheduling
 - Stage reordering
-- Rejection and withdrawal reasons UI
 - Notifications
 - Calendar integration
 
@@ -63,7 +76,7 @@ Interview times are currently stored as local wall-clock times because Interview
 
 ## Current limitations
 
-This release has no authentication and is intended only for a trusted local machine. The Today and This week dashboard queries are not implemented yet. Process deletion and daemon packaging are also not included.
+This release has no authentication and is intended only for a trusted local machine. The Today and This week dashboard queries, calendar synchronization, appointment rescheduling, notifications, analytics, and daemon packaging are not implemented yet.
 
 ## License
 

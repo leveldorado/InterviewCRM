@@ -1,20 +1,26 @@
 const std = @import("std");
 const appointments = @import("appointments.zig");
+const compensations = @import("compensations.zig");
 const db = @import("database.zig");
 const notes = @import("notes.zig");
-const migrations = @import("migrations.zig");
 const processes = @import("processes.zig");
+const questions = @import("questions.zig");
+const sources = @import("sources.zig");
 const stages = @import("stages.zig");
 const view_models = @import("view_models.zig");
+const company_questions_template = @import("templates/company_questions.zig");
+const compensation_template = @import("templates/compensation.zig");
 const dashboard_template = @import("templates/dashboard.zig");
-const process_form_template = @import("templates/process_form.zig");
-const process_detail_template = @import("templates/process_detail.zig");
 const error_page_template = @import("templates/error_page.zig");
+const process_detail_template = @import("templates/process_detail.zig");
+const process_form_template = @import("templates/process_form.zig");
+const source_field_template = @import("templates/source_field.zig");
 const stage_card_template = @import("templates/stage_card.zig");
 const stage_timeline_template = @import("templates/stage_timeline.zig");
 
 pub fn buildDashboard(
     allocator: std.mem.Allocator,
+    database: *db.Database,
     stored_processes: []const processes.Process,
 ) !view_models.Dashboard {
     const summaries = try allocator.alloc(
@@ -31,47 +37,86 @@ pub fn buildDashboard(
             .company_name = process.input.company_name,
             .position_name = process.input.position_name,
             .status = process.status,
-            .salary_display = try buildSalaryDisplay(allocator, process.input),
-            .source = process.input.source,
+            .current_stage = try currentStageName(
+                allocator,
+                database,
+                process.current_stage_id,
+            ),
+            .source = process.input.source_name,
+            .interest = try ratingDisplay(allocator, process.input.interest_rating, "★"),
+            .money = try ratingDisplay(allocator, process.input.money_rating, "$"),
+            .growth = try ratingDisplay(allocator, process.input.growth_rating, "★"),
+            .applied_at = process.input.applied_at,
             .updated_at = process.updated_at,
         };
     }
-    return .{
-        .processes = summaries,
-    };
+    return .{ .processes = summaries };
 }
 
 pub fn buildProcessForm(
     allocator: std.mem.Allocator,
+    database: *db.Database,
     input: processes.Input,
     errors: processes.Errors,
     process_id: ?i64,
 ) !view_models.ProcessForm {
     const editing = process_id != null;
-    const action = if (process_id) |id|
-        try std.fmt.allocPrint(allocator, "/processes/{d}/edit", .{id})
-    else
-        "/processes";
-    const cancel_url = if (process_id) |id|
-        try std.fmt.allocPrint(allocator, "/processes/{d}", .{id})
-    else
-        "/";
     return .{
         .title = if (editing) "Edit process" else "Add job process",
-        .action = action,
-        .cancel_url = cancel_url,
+        .action = if (process_id) |id|
+            try std.fmt.allocPrint(allocator, "/processes/{d}/edit", .{id})
+        else
+            "/processes",
+        .cancel_url = if (process_id) |id|
+            try std.fmt.allocPrint(allocator, "/processes/{d}", .{id})
+        else
+            "/",
         .input = input,
         .errors = errors,
-        .salary_min_value = try salaryInputValue(
+        .source_field = try buildSourceField(
             allocator,
-            input.salary_min_text,
-            input.salary_min,
+            database,
+            input.source_id,
+            "",
+            null,
         ),
-        .salary_max_value = try salaryInputValue(
+        .interest_value = try optionalIntValue(allocator, input.interest_rating),
+        .money_value = try optionalIntValue(allocator, input.money_rating),
+        .growth_value = try optionalIntValue(allocator, input.growth_rating),
+        .advertised = try buildCompensationForm(
             allocator,
-            input.salary_max_text,
-            input.salary_max,
+            input.advertised,
+            errors.advertised,
         ),
+        .discussed = try buildCompensationForm(
+            allocator,
+            input.discussed,
+            errors.discussed,
+        ),
+    };
+}
+
+pub fn buildSourceField(
+    allocator: std.mem.Allocator,
+    database: *db.Database,
+    selected_id: ?i64,
+    new_source: []const u8,
+    error_message: ?[]const u8,
+) !view_models.SourceField {
+    const stored = try sources.list(allocator, database);
+    const options = try allocator.alloc(view_models.SourceOption, stored.len);
+    for (stored, options) |source, *option| {
+        option.* = .{
+            .id = source.id,
+            .id_value = try std.fmt.allocPrint(allocator, "{d}", .{source.id}),
+            .name = source.name,
+            .selected = selected_id == source.id,
+        };
+    }
+    return .{
+        .options = options,
+        .new_source = new_source,
+        .error_message = error_message,
     };
 }
 
@@ -89,20 +134,34 @@ pub fn buildProcessDetail(
             "/processes/{d}/edit",
             .{process.id},
         ),
+        .delete_url = try std.fmt.allocPrint(
+            allocator,
+            "/processes/{d}/delete",
+            .{process.id},
+        ),
         .company_name = process.input.company_name,
         .position_name = process.input.position_name,
         .status = process.status,
-        .source = process.input.source,
+        .source = process.input.source_name,
         .location = process.input.location,
         .work_arrangement = process.input.work_arrangement,
-        .salary_display = try buildSalaryDisplay(allocator, process.input),
-        .salary_notes = process.input.salary_notes,
+        .company_summary = process.input.company_summary,
+        .applied_at = process.input.applied_at,
+        .interest = try ratingDisplay(allocator, process.input.interest_rating, "★"),
+        .money = try ratingDisplay(allocator, process.input.money_rating, "$"),
+        .growth = try ratingDisplay(allocator, process.input.growth_rating, "★"),
         .job_url = if (process.input.job_url.len > 0)
             process.input.job_url
         else
             null,
-        .created_at = process.created_at,
         .updated_at = process.updated_at,
+        .compensation = try buildCompensationSection(
+            allocator,
+            database,
+            process.id,
+            null,
+            .{},
+        ),
         .timeline = try buildStageTimelineView(
             allocator,
             database,
@@ -110,7 +169,66 @@ pub fn buildProcessDetail(
             process.current_stage_id,
             form_state,
         ),
+        .company_questions = try buildQuestionSection(
+            allocator,
+            database,
+            process.id,
+            null,
+            .company,
+            .{},
+        ),
     };
+}
+
+pub fn buildCompensationSection(
+    allocator: std.mem.Allocator,
+    database: *db.Database,
+    process_id: i64,
+    error_kind: ?compensations.Kind,
+    submitted: compensations.Input,
+) !view_models.CompensationSection {
+    const kinds = [_]compensations.Kind{ .advertised, .discussed, .offer };
+    const snapshots = try allocator.alloc(
+        view_models.CompensationSnapshot,
+        kinds.len,
+    );
+    for (kinds, snapshots) |kind, *snapshot| {
+        const stored = try compensations.getForProcess(
+            allocator,
+            database,
+            process_id,
+            kind,
+        );
+        var input = if (stored) |value| compensationInput(value) else compensations.Input{ .process_id = process_id, .kind = kind };
+        var errors = compensations.Errors{};
+        if (error_kind == kind) {
+            input = submitted;
+            errors = compensations.validate(submitted);
+        }
+        snapshot.* = .{
+            .kind = compensations.kindText(kind),
+            .label = switch (kind) {
+                .advertised => "Advertised",
+                .discussed => "Discussed",
+                .offer => "Offer",
+            },
+            .display = if (stored) |value|
+                try compensationDisplay(allocator, value)
+            else if (kind == .offer)
+                "Not received"
+            else
+                "Not recorded",
+            .notes = if (stored) |value| value.notes else null,
+            .action = try std.fmt.allocPrint(
+                allocator,
+                "/processes/{d}/compensations/{s}",
+                .{ process_id, compensations.kindText(kind) },
+            ),
+            .form = try buildCompensationForm(allocator, input, errors),
+            .show_confirmed = kind == .discussed,
+        };
+    }
+    return .{ .snapshots = snapshots };
 }
 
 pub fn buildStageTimelineView(
@@ -120,16 +238,9 @@ pub fn buildStageTimelineView(
     current_stage_id: ?i64,
     form_state: view_models.TimelineFormState,
 ) !view_models.StageTimeline {
-    const stored_stages = try stages.listForProcess(
-        allocator,
-        database,
-        process_id,
-    );
-    const stage_views = try allocator.alloc(
-        view_models.Stage,
-        stored_stages.len,
-    );
-    for (stored_stages, stage_views) |stage, *stage_view| {
+    const stored = try stages.listForProcess(allocator, database, process_id);
+    const stage_views = try allocator.alloc(view_models.Stage, stored.len);
+    for (stored, stage_views) |stage, *stage_view| {
         stage_view.* = try buildStageCardView(
             allocator,
             database,
@@ -180,10 +291,7 @@ pub fn buildStageCardView(
             .edit_action = try actionUrl(allocator, "notes", note.id, "edit"),
             .delete_action = try actionUrl(allocator, "notes", note.id, "delete"),
             .edit_body = if (editing_with_error) edit_state.?.body else note.body,
-            .edit_error = if (editing_with_error)
-                edit_state.?.error_message
-            else
-                null,
+            .edit_error = if (editing_with_error) edit_state.?.error_message else null,
             .editing_with_error = editing_with_error,
         };
     }
@@ -198,14 +306,11 @@ pub fn buildStageCardView(
         view_models.StageAppointment,
         stored_appointments.len,
     );
-    for (stored_appointments, appointment_views) |appointment, *appointment_view| {
-        appointment_view.* = .{
+    for (stored_appointments, appointment_views) |appointment, *view| {
+        view.* = .{
             .id = appointment.id,
             .title = appointment.title,
-            .time_display = try appointmentTimeDisplay(
-                allocator,
-                appointment.starts_at,
-            ),
+            .time_display = appointment.starts_at,
             .meeting_url = appointment.meeting_url,
             .contact_name = appointment.contact_name,
             .location = appointment.location,
@@ -222,17 +327,17 @@ pub fn buildStageCardView(
         };
     }
 
+    const learning = try buildQuestionViews(
+        allocator,
+        try questions.listForStage(
+            allocator,
+            database,
+            stage.process_id,
+            stage.id,
+            .learning,
+        ),
+    );
     const is_form_stage = form_state.stage_id == stage.id;
-    const add_note_form: view_models.NoteForm = if (is_form_stage)
-        form_state.add_note
-    else
-        .{};
-    const appointment_form = if (is_form_stage)
-        form_state.appointment
-    else
-        view_models.AppointmentForm{
-            .input = .{ .title = stage.name },
-        };
     const is_current = current_stage_id == stage.id;
     const article_id = try std.fmt.allocPrint(allocator, "stage-{d}", .{stage.id});
     return .{
@@ -240,33 +345,219 @@ pub fn buildStageCardView(
         .article_id = article_id,
         .target_id = try std.fmt.allocPrint(allocator, "#{s}", .{article_id}),
         .name = stage.name,
+        .kind = stages.kindText(stage.kind),
         .position = stage.position,
         .status = stages.statusText(stage.status),
         .status_label = stageStatusLabel(stage.status),
+        .outcome = if (stage.outcome) |value| stages.outcomeText(value) else null,
+        .outcome_reason = stage.outcome_reason,
         .marker = stageMarker(stage.status, is_current),
         .state_class = stageStateClass(stage.status, is_current),
         .is_current = is_current,
-        .can_complete = is_current and
+        .can_set_outcome = is_current and
             (stage.status == .in_progress or stage.status == .scheduled),
+        .is_offer = stage.kind == .offer,
+        .offer_compensation = if (stage.kind == .offer) block: {
+            const section = try buildCompensationSection(
+                allocator,
+                database,
+                stage.process_id,
+                null,
+                .{},
+            );
+            break :block section.snapshots[2];
+        } else null,
         .can_skip = stage.status == .planned or
             (is_current and
                 (stage.status == .in_progress or stage.status == .scheduled)),
         .can_reopen = stage.status == .completed or stage.status == .skipped,
-        .complete_action = try actionUrl(allocator, "stages", stage.id, "complete"),
+        .outcome_action = try actionUrl(allocator, "stages", stage.id, "outcome"),
         .skip_action = try actionUrl(allocator, "stages", stage.id, "skip"),
         .reopen_action = try actionUrl(allocator, "stages", stage.id, "reopen"),
+        .outcome_form = if (is_form_stage) form_state.outcome else .{},
         .add_note_action = try actionUrl(allocator, "stages", stage.id, "notes"),
-        .schedule_action = try actionUrl(
+        .schedule_action = try actionUrl(allocator, "stages", stage.id, "appointments"),
+        .notes = note_views,
+        .appointments = appointment_views,
+        .learning_questions = learning,
+        .show_learning_questions = stage.kind == .technical or
+            stage.kind == .system_design or stage.kind == .custom or
+            learning.len > 0,
+        .add_learning_question_action = try actionUrl(
             allocator,
             "stages",
             stage.id,
-            "appointments",
+            "questions/learning",
         ),
-        .notes = note_views,
-        .appointments = appointment_views,
-        .add_note_form = add_note_form,
-        .appointment_form = appointment_form,
+        .learning_question_form = if (is_form_stage)
+            form_state.learning_question
+        else
+            .{},
+        .add_note_form = if (is_form_stage) form_state.add_note else .{},
+        .appointment_form = if (is_form_stage)
+            form_state.appointment
+        else
+            .{
+                .input = .{
+                    .title = stage.name,
+                },
+            },
     };
+}
+
+pub fn buildQuestionSection(
+    allocator: std.mem.Allocator,
+    database: *db.Database,
+    process_id: i64,
+    stage_id: ?i64,
+    kind: questions.Kind,
+    form: view_models.QuestionForm,
+) !view_models.QuestionSection {
+    const stored = if (stage_id) |id|
+        try questions.listForStage(allocator, database, process_id, id, kind)
+    else
+        try questions.listForProcess(allocator, database, process_id, kind);
+    return .{
+        .process_id = process_id,
+        .questions = try buildQuestionViews(allocator, stored),
+        .add_action = if (stage_id) |id|
+            try std.fmt.allocPrint(
+                allocator,
+                "/stages/{d}/questions/learning",
+                .{id},
+            )
+        else
+            try std.fmt.allocPrint(
+                allocator,
+                "/processes/{d}/questions/company",
+                .{process_id},
+            ),
+        .question_value = form.question,
+        .answer_value = form.answer,
+        .error_message = form.error_message,
+    };
+}
+
+fn buildQuestionViews(
+    allocator: std.mem.Allocator,
+    stored: []const questions.Question,
+) ![]view_models.Question {
+    const result = try allocator.alloc(view_models.Question, stored.len);
+    for (stored, result) |question, *view| {
+        view.* = .{
+            .id = question.id,
+            .question = question.question,
+            .answer = question.answer,
+            .edit_action = try actionUrl(allocator, "questions", question.id, "edit"),
+            .delete_action = try actionUrl(allocator, "questions", question.id, "delete"),
+        };
+    }
+    return result;
+}
+
+fn buildCompensationForm(
+    allocator: std.mem.Allocator,
+    input: compensations.Input,
+    errors: compensations.Errors,
+) !view_models.CompensationForm {
+    return .{
+        .input = input,
+        .errors = errors,
+        .minimum_value = try amountValue(
+            allocator,
+            input.amount_min_text,
+            input.amount_min,
+        ),
+        .maximum_value = try amountValue(
+            allocator,
+            input.amount_max_text,
+            input.amount_max,
+        ),
+    };
+}
+
+fn compensationInput(value: compensations.Compensation) compensations.Input {
+    return .{
+        .process_id = value.process_id,
+        .kind = value.kind,
+        .amount_min = value.amount_min,
+        .amount_max = value.amount_max,
+        .currency = value.currency orelse "",
+        .period = value.period orelse "",
+        .salary_type = value.salary_type orelse "",
+        .confirmed = value.confirmed,
+        .notes = value.notes orelse "",
+    };
+}
+
+pub fn compensationDisplay(
+    allocator: std.mem.Allocator,
+    value: compensations.Compensation,
+) ![]const u8 {
+    if (value.amount_min == null and value.amount_max == null) {
+        return if (value.confirmed) "Discussed · confirmed" else "Recorded";
+    }
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    if (value.currency) |currency| try output.writer.print("{s} ", .{currency});
+    if (value.amount_min) |amount| try writeAmount(&output.writer, amount);
+    if (value.amount_min != null and value.amount_max != null) {
+        try output.writer.writeAll("–");
+    }
+    if (value.amount_max) |amount| try writeAmount(&output.writer, amount);
+    if (value.period) |period| try output.writer.print(" / {s}", .{period});
+    if (value.salary_type) |salary_type| {
+        try output.writer.print(" · {s}", .{salary_type});
+    }
+    if (value.confirmed) try output.writer.writeAll(" · confirmed");
+    return output.toOwnedSlice();
+}
+
+fn ratingDisplay(
+    allocator: std.mem.Allocator,
+    rating: ?i64,
+    symbol: []const u8,
+) ![]const u8 {
+    const value = rating orelse return "—";
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    var index: i64 = 0;
+    while (index < value) : (index += 1) try output.writer.writeAll(symbol);
+    return output.toOwnedSlice();
+}
+
+fn currentStageName(
+    allocator: std.mem.Allocator,
+    database: *db.Database,
+    stage_id: ?i64,
+) ![]const u8 {
+    const id = stage_id orelse return "Add next stage";
+    const stage = (try stages.get(allocator, database, id)) orelse return "—";
+    return stage.name;
+}
+
+fn optionalIntValue(allocator: std.mem.Allocator, value: ?i64) ![]const u8 {
+    return if (value) |number|
+        std.fmt.allocPrint(allocator, "{d}", .{number})
+    else
+        "";
+}
+
+fn amountValue(
+    allocator: std.mem.Allocator,
+    raw: []const u8,
+    parsed: ?i64,
+) ![]const u8 {
+    if (raw.len > 0) return raw;
+    return optionalIntValue(allocator, parsed);
+}
+
+fn writeAmount(writer: *std.Io.Writer, amount: i64) !void {
+    var buffer: [32]u8 = undefined;
+    const digits = try std.fmt.bufPrint(&buffer, "{d}", .{amount});
+    for (digits, 0..) |digit, index| {
+        const remaining = digits.len - index;
+        try writer.writeByte(digit);
+        if (remaining > 1 and (remaining - 1) % 3 == 0) try writer.writeByte(',');
+    }
 }
 
 fn actionUrl(
@@ -275,11 +566,7 @@ fn actionUrl(
     id: i64,
     action: []const u8,
 ) ![]const u8 {
-    return std.fmt.allocPrint(
-        allocator,
-        "/{s}/{d}/{s}",
-        .{ resource, id, action },
-    );
+    return std.fmt.allocPrint(allocator, "/{s}/{d}/{s}", .{ resource, id, action });
 }
 
 fn stageStatusLabel(status: stages.Status) []const u8 {
@@ -319,571 +606,45 @@ fn appointmentStatusLabel(status: appointments.Status) []const u8 {
     };
 }
 
-fn appointmentTimeDisplay(
-    allocator: std.mem.Allocator,
-    value: []const u8,
-) ![]const u8 {
-    if (value.len != 16) return allocator.dupe(u8, value);
-    const month_number = std.fmt.parseInt(usize, value[5..7], 10) catch
-        return allocator.dupe(u8, value);
-    const months = [_][]const u8{
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    };
-    if (month_number == 0 or month_number > months.len) {
-        return allocator.dupe(u8, value);
-    }
-    return std.fmt.allocPrint(
-        allocator,
-        "{d} {s} {s} · {s}",
-        .{
-            try std.fmt.parseInt(u8, value[8..10], 10),
-            months[month_number - 1],
-            value[0..4],
-            value[11..16],
-        },
-    );
-}
-
-pub fn buildSalaryDisplay(
-    allocator: std.mem.Allocator,
-    input: processes.Input,
-) ![]const u8 {
-    if (!input.salary_discussed) return "Not discussed";
-    const has_no_range = input.salary_min == null and input.salary_max == null;
-    if (has_no_range) return "Salary discussed; range not disclosed";
-
-    var output: std.Io.Writer.Allocating = .init(allocator);
-    if (input.currency.len > 0) {
-        try output.writer.print("{s} ", .{input.currency});
-    }
-    if (input.salary_min) |minimum| try writeAmount(&output.writer, minimum);
-    if (input.salary_min != null and input.salary_max != null) {
-        try output.writer.writeAll("–");
-    }
-    if (input.salary_max) |maximum| try writeAmount(&output.writer, maximum);
-    if (input.period.len > 0) {
-        try output.writer.print(" per {s}", .{input.period});
-    }
-    try output.writer.print(", {s}", .{
-        if (input.salary_type.len > 0) input.salary_type else "unknown type",
-    });
-    return output.toOwnedSlice();
-}
-
-fn writeAmount(writer: *std.Io.Writer, amount: i64) !void {
-    var buffer: [32]u8 = undefined;
-    const digits = try std.fmt.bufPrint(&buffer, "{d}", .{amount});
-    for (digits, 0..) |digit, index| {
-        const remaining = digits.len - index;
-        try writer.writeByte(digit);
-        if (remaining > 1 and (remaining - 1) % 3 == 0) {
-            try writer.writeByte(',');
-        }
-    }
-}
-
-fn salaryInputValue(
-    allocator: std.mem.Allocator,
-    raw_value: []const u8,
-    parsed_value: ?i64,
-) ![]const u8 {
-    if (raw_value.len > 0) return raw_value;
-    if (parsed_value) |value| {
-        return std.fmt.allocPrint(allocator, "{d}", .{value});
-    }
-    return "";
-}
-
-pub fn renderDashboardPage(
-    writer: *std.Io.Writer,
-    view: view_models.Dashboard,
-) !void {
+pub fn renderDashboardPage(writer: *std.Io.Writer, view: view_models.Dashboard) !void {
     try dashboard_template.DashboardPage.render(.{view}, writer);
 }
-
-pub fn renderDashboardFragment(
-    writer: *std.Io.Writer,
-    view: view_models.Dashboard,
-) !void {
+pub fn renderDashboardFragment(writer: *std.Io.Writer, view: view_models.Dashboard) !void {
     try dashboard_template.DashboardFragment.render(.{view}, writer);
 }
-
-pub fn renderProcessFormPage(
-    writer: *std.Io.Writer,
-    view: view_models.ProcessForm,
-) !void {
+pub fn renderProcessFormPage(writer: *std.Io.Writer, view: view_models.ProcessForm) !void {
     try process_form_template.ProcessFormPage.render(.{view}, writer);
 }
-
-pub fn renderProcessFormNavigationFragment(
-    writer: *std.Io.Writer,
-    view: view_models.ProcessForm,
-) !void {
+pub fn renderProcessFormNavigationFragment(writer: *std.Io.Writer, view: view_models.ProcessForm) !void {
     try process_form_template.ProcessFormFragment.render(.{view}, writer);
 }
-
-pub fn renderProcessFormValidationFragment(
-    writer: *std.Io.Writer,
-    view: view_models.ProcessForm,
-) !void {
+pub fn renderProcessFormValidationFragment(writer: *std.Io.Writer, view: view_models.ProcessForm) !void {
     try process_form_template.ProcessForm.render(.{view}, writer);
 }
-
-pub fn renderProcessDetailPage(
-    writer: *std.Io.Writer,
-    view: view_models.ProcessDetail,
-) !void {
+pub fn renderProcessDetailPage(writer: *std.Io.Writer, view: view_models.ProcessDetail) !void {
     try process_detail_template.ProcessDetailPage.render(.{view}, writer);
 }
-
-pub fn renderProcessDetailFragment(
-    writer: *std.Io.Writer,
-    view: view_models.ProcessDetail,
-) !void {
+pub fn renderProcessDetailFragment(writer: *std.Io.Writer, view: view_models.ProcessDetail) !void {
     try process_detail_template.ProcessDetailFragment.render(.{view}, writer);
 }
-
-pub fn renderStageTimelineFragment(
-    writer: *std.Io.Writer,
-    view: view_models.StageTimeline,
-) !void {
+pub fn renderStageTimelineFragment(writer: *std.Io.Writer, view: view_models.StageTimeline) !void {
     try stage_timeline_template.StageTimeline.render(.{view}, writer);
 }
-
-pub fn renderStageCardFragment(
-    writer: *std.Io.Writer,
-    view: view_models.Stage,
-) !void {
+pub fn renderStageCardFragment(writer: *std.Io.Writer, view: view_models.Stage) !void {
     try stage_card_template.StageCard.render(.{view}, writer);
 }
-
-pub fn renderErrorPage(
-    writer: *std.Io.Writer,
-    view: view_models.ErrorPage,
-) !void {
+pub fn renderSourceFieldFragment(writer: *std.Io.Writer, view: view_models.SourceField) !void {
+    try source_field_template.SourceField.render(.{view}, writer);
+}
+pub fn renderCompensationFragment(writer: *std.Io.Writer, view: view_models.CompensationSection) !void {
+    try compensation_template.CompensationSection.render(.{view}, writer);
+}
+pub fn renderCompanyQuestionsFragment(writer: *std.Io.Writer, view: view_models.QuestionSection) !void {
+    try company_questions_template.CompanyQuestions.render(.{view}, writer);
+}
+pub fn renderErrorPage(writer: *std.Io.Writer, view: view_models.ErrorPage) !void {
     try error_page_template.ErrorPage.render(.{view}, writer);
 }
-
-pub fn renderErrorFragment(
-    writer: *std.Io.Writer,
-    view: view_models.ErrorPage,
-) !void {
+pub fn renderErrorFragment(writer: *std.Io.Writer, view: view_models.ErrorPage) !void {
     try error_page_template.ErrorFragment.render(.{view}, writer);
-}
-
-fn expectSingleTitleOutsideMain(html: []const u8) !void {
-    try std.testing.expectEqual(
-        @as(usize, 1),
-        std.mem.count(u8, html, "<title>"),
-    );
-    const title_index = std.mem.indexOf(u8, html, "<title>").?;
-    const main_index = std.mem.indexOf(u8, html, "<main").?;
-    const main_end_index = std.mem.indexOf(u8, html, "</main>").?;
-    try std.testing.expect(title_index < main_index);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        html[main_index..main_end_index],
-        "<title>",
-    ) == null);
-}
-
-test "layout and form contain HTMX behavior and escape user input" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer output.deinit();
-    const view = try buildProcessForm(
-        arena.allocator(),
-        .{
-            .company_name = "<script>alert(\"x\")</script>",
-            .salary_min_text = "12x",
-        },
-        .{
-            .salary_min = "Enter a whole number.",
-        },
-        null,
-    );
-    try renderProcessFormPage(&output.writer, view);
-    const html = output.written();
-    try std.testing.expect(std.mem.indexOf(u8, html, "id=\"main-content\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, html, "hx-boost=\"true\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, html, "hx-target=\"#main-content\"") != null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        html,
-        "hx-swap=\"innerHTML show:window:top\"",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        html,
-        "id=\"navigation-indicator\"",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(u8, html, "/static/app.css") != null);
-    try std.testing.expect(std.mem.indexOf(u8, html, "/static/vendor/htmx.min.js") != null);
-    try std.testing.expect(std.mem.indexOf(u8, html, "&lt;script&gt;") != null);
-    try std.testing.expect(std.mem.indexOf(u8, html, "<script>alert") == null);
-    try std.testing.expect(std.mem.indexOf(u8, html, "hx-post=\"/processes\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, html, "value=\"12x\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, html, "&quot;422&quot;") != null);
-}
-
-test "dashboard page and navigation fragment preserve links and title" {
-    const summaries = [_]view_models.ProcessSummary{
-        .{
-            .detail_url = "/processes/9",
-            .company_name = "Acme",
-            .position_name = "Engineer",
-            .status = "active",
-            .salary_display = "Not discussed",
-            .source = "Referral",
-            .updated_at = "today",
-        },
-    };
-    const view = view_models.Dashboard{
-        .processes = &summaries,
-    };
-    var page_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer page_output.deinit();
-    try renderDashboardPage(&page_output.writer, view);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        page_output.written(),
-        "<!DOCTYPE html>",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        page_output.written(),
-        "href=\"/processes/9\"",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        page_output.written(),
-        "href=\"/processes/new\"",
-    ) != null);
-
-    var fragment_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer fragment_output.deinit();
-    try renderDashboardFragment(&fragment_output.writer, view);
-    const fragment = fragment_output.written();
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        fragment,
-        "<title>Dashboard · Interview CRM</title>",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(u8, fragment, "<h1>Dashboard</h1>") != null);
-    try std.testing.expect(std.mem.indexOf(u8, fragment, "<!DOCTYPE html>") == null);
-    try std.testing.expect(std.mem.indexOf(u8, fragment, "<main") == null);
-}
-
-test "edit form uses one prepared action for HTML and HTMX" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer output.deinit();
-    const view = try buildProcessForm(
-        arena.allocator(),
-        .{},
-        .{},
-        42,
-    );
-    try renderProcessFormValidationFragment(&output.writer, view);
-    const html = output.written();
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        html,
-        "action=\"/processes/42/edit\"",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        html,
-        "hx-post=\"/processes/42/edit\"",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(u8, html, "<!DOCTYPE html>") == null);
-    try std.testing.expect(std.mem.indexOf(u8, html, "<html") == null);
-    try std.testing.expect(std.mem.indexOf(u8, html, "href=\"/processes/42\"") != null);
-
-    var navigation_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer navigation_output.deinit();
-    try renderProcessFormNavigationFragment(&navigation_output.writer, view);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        navigation_output.written(),
-        "<title>Edit process · Interview CRM</title>",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        navigation_output.written(),
-        "<html",
-    ) == null);
-}
-
-test "full and fragment process views remain structurally distinct" {
-    var database = try db.Database.open(":memory:");
-    defer database.close();
-    try migrations.apply(&database);
-    var process = processes.Process{
-        .id = 7,
-        .input = .{
-            .company_name = "Acme & Sons",
-            .position_name = "Engineer",
-            .salary_discussed = true,
-            .salary_min = 5500,
-            .salary_max = 6500,
-            .currency = "EUR",
-            .period = "month",
-            .salary_type = "gross",
-            .job_url = "https://example.com/job?a=1&b=2",
-        },
-        .status = "active",
-        .created_at = "today",
-        .updated_at = "today",
-    };
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    var insert_process = try database.prepare(
-        "INSERT INTO job_processes(id,company_name,position_name,created_at,updated_at) VALUES(7,'Acme & Sons','Engineer',datetime('now'),datetime('now'))",
-    );
-    defer insert_process.deinit();
-    _ = try insert_process.step();
-    try database.begin();
-    const first_stage_id = try stages.createDefaults(&database, process.id);
-    try database.commit();
-    _ = try notes.createForStage(
-        &database,
-        process.id,
-        first_stage_id,
-        .{ .body = "<script>alert(1)</script>\nPrepare examples" },
-    );
-    process.current_stage_id = first_stage_id;
-    const view = try buildProcessDetail(
-        arena.allocator(),
-        &database,
-        process,
-        .{},
-    );
-
-    var page_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer page_output.deinit();
-    try renderProcessDetailPage(&page_output.writer, view);
-    try expectSingleTitleOutsideMain(page_output.written());
-
-    var fragment_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer fragment_output.deinit();
-    try renderProcessDetailFragment(&fragment_output.writer, view);
-    const fragment = fragment_output.written();
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        fragment,
-        "<title>Acme &amp; Sons · Interview CRM</title>",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        fragment,
-        "EUR 5,500–6,500 per month, gross",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        fragment,
-        "Acme &amp; Sons",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        fragment,
-        "<!DOCTYPE html>",
-    ) == null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        fragment,
-        "hx-boost=\"false\"",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        fragment,
-        "rel=\"noopener noreferrer\"",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        fragment,
-        "id=\"stage-timeline\"",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(u8, fragment, "id=\"stage-1\"") != null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        fragment,
-        "hx-target=\"#stage-timeline\"",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        fragment,
-        "hx-target=\"#stage-1\"",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        fragment,
-        "&lt;script&gt;alert(1)&lt;/script&gt;",
-    ) != null);
-}
-
-test "error page and fragment are distinct navigable representations" {
-    const view = view_models.ErrorPage{
-        .title = "Not found",
-        .message = "Missing",
-    };
-    var page_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer page_output.deinit();
-    try renderErrorPage(&page_output.writer, view);
-    try expectSingleTitleOutsideMain(page_output.written());
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        page_output.written(),
-        "<!DOCTYPE html>",
-    ) != null);
-
-    var fragment_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
-    defer fragment_output.deinit();
-    try renderErrorFragment(&fragment_output.writer, view);
-    const fragment = fragment_output.written();
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        fragment,
-        "<title>Not found · Interview CRM</title>",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(u8, fragment, "href=\"/\"") != null);
-    try std.testing.expect(std.mem.indexOf(u8, fragment, "<html") == null);
-}
-
-test "note edit validation belongs only to the affected note editor" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-    var database = try db.Database.open(":memory:");
-    defer database.close();
-    try migrations.apply(&database);
-    const process_id = try processes.create(&database, .{
-        .company_name = "Acme",
-        .position_name = "Engineer",
-    });
-    const process = (try processes.get(allocator, &database, process_id)).?;
-    const stage_id = process.current_stage_id.?;
-    const first_note_id = try notes.createForStage(
-        &database,
-        process_id,
-        stage_id,
-        .{ .body = "First note" },
-    );
-    _ = try notes.createForStage(
-        &database,
-        process_id,
-        stage_id,
-        .{ .body = "Second note" },
-    );
-    const stored_stage = (try stages.get(allocator, &database, stage_id)).?;
-
-    const edit_card = try buildStageCardView(
-        allocator,
-        &database,
-        stored_stage,
-        process.current_stage_id,
-        .{
-            .stage_id = stage_id,
-            .edit_note = .{
-                .note_id = first_note_id,
-                .body = "",
-                .error_message = "Note text is required.",
-            },
-        },
-    );
-    try std.testing.expect(edit_card.notes[0].editing_with_error);
-    try std.testing.expectEqualStrings("", edit_card.notes[0].edit_body);
-    try std.testing.expectEqualStrings(
-        "Note text is required.",
-        edit_card.notes[0].edit_error.?,
-    );
-    try std.testing.expect(!edit_card.notes[1].editing_with_error);
-    try std.testing.expect(edit_card.notes[1].edit_error == null);
-    try std.testing.expectEqualStrings("Second note", edit_card.notes[1].edit_body);
-    try std.testing.expectEqualStrings("", edit_card.add_note_form.body);
-    try std.testing.expect(edit_card.add_note_form.error_message == null);
-
-    var edit_output: std.Io.Writer.Allocating = .init(allocator);
-    try renderStageCardFragment(&edit_output.writer, edit_card);
-    const edit_fragment = edit_output.written();
-    try std.testing.expect(std.mem.indexOf(
-        u8,
-        edit_fragment,
-        "id=\"stage-1\"",
-    ) != null);
-    try std.testing.expect(std.mem.indexOf(u8, edit_fragment, "<!DOCTYPE html>") == null);
-    try std.testing.expectEqual(
-        @as(usize, 1),
-        std.mem.count(u8, edit_fragment, "open=\"open\""),
-    );
-
-    const add_card = try buildStageCardView(
-        allocator,
-        &database,
-        stored_stage,
-        process.current_stage_id,
-        .{
-            .stage_id = stage_id,
-            .add_note = .{
-                .body = "   ",
-                .error_message = "Note text is required.",
-            },
-        },
-    );
-    try std.testing.expectEqualStrings("   ", add_card.add_note_form.body);
-    try std.testing.expect(add_card.add_note_form.error_message != null);
-    try std.testing.expect(!add_card.notes[0].editing_with_error);
-    try std.testing.expect(!add_card.notes[1].editing_with_error);
-
-    try notes.updateStageNote(
-        &database,
-        process_id,
-        stage_id,
-        first_note_id,
-        .{ .body = "Updated first note" },
-    );
-    const updated_note = (try notes.get(allocator, &database, first_note_id)).?;
-    try std.testing.expectEqualStrings("Updated first note", updated_note.body);
-}
-
-test "only scheduled appointments render cancellation actions" {
-    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
-    defer arena.deinit();
-    const allocator = arena.allocator();
-    var database = try db.Database.open(":memory:");
-    defer database.close();
-    try migrations.apply(&database);
-    const process_id = try processes.create(&database, .{
-        .company_name = "Acme",
-        .position_name = "Engineer",
-    });
-    const process = (try processes.get(allocator, &database, process_id)).?;
-    const stage_id = process.current_stage_id.?;
-    try database.exec(
-        "INSERT INTO appointments(id,process_id,stage_id,title,starts_at,status,created_at,updated_at) VALUES" ++
-            "(1,1,1,'Scheduled','2026-08-12T10:00','scheduled',datetime('now'),datetime('now'))," ++
-            "(2,1,1,'Completed','2026-08-13T10:00','completed',datetime('now'),datetime('now'))," ++
-            "(3,1,1,'Cancelled','2026-08-14T10:00','cancelled',datetime('now'),datetime('now'));",
-    );
-    const stored_stage = (try stages.get(allocator, &database, stage_id)).?;
-    const card = try buildStageCardView(
-        allocator,
-        &database,
-        stored_stage,
-        process.current_stage_id,
-        .{},
-    );
-    try std.testing.expect(card.appointments[0].can_cancel);
-    try std.testing.expect(!card.appointments[1].can_cancel);
-    try std.testing.expect(!card.appointments[2].can_cancel);
-
-    var output: std.Io.Writer.Allocating = .init(allocator);
-    try renderStageCardFragment(&output.writer, card);
-    try std.testing.expectEqual(
-        @as(usize, 1),
-        std.mem.count(u8, output.written(), "Cancel interview"),
-    );
 }
