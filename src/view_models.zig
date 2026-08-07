@@ -53,6 +53,12 @@ pub const NoteForm = struct {
     error_message: ?[]const u8 = null,
 };
 
+pub const NoteEditForm = struct {
+    note_id: i64,
+    body: []const u8,
+    error_message: ?[]const u8 = null,
+};
+
 pub const AppointmentForm = struct {
     input: appointments.Input = .{},
     errors: appointments.Errors = .{},
@@ -61,7 +67,8 @@ pub const AppointmentForm = struct {
 pub const TimelineFormState = struct {
     add_stage: AddStageForm = .{},
     stage_id: ?i64 = null,
-    note: NoteForm = .{},
+    add_note: NoteForm = .{},
+    edit_note: ?NoteEditForm = null,
     appointment: AppointmentForm = .{},
 };
 
@@ -70,6 +77,9 @@ pub const StageNote = struct {
     body: []const u8,
     edit_action: []const u8,
     delete_action: []const u8,
+    edit_body: []const u8,
+    edit_error: ?[]const u8,
+    editing_with_error: bool,
 };
 
 pub const StageAppointment = struct {
@@ -107,7 +117,7 @@ pub const Stage = struct {
     schedule_action: []const u8,
     notes: []const StageNote,
     appointments: []const StageAppointment,
-    note_form: NoteForm,
+    add_note_form: NoteForm,
     appointment_form: AppointmentForm,
 };
 

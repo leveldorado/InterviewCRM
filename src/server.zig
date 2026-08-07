@@ -691,7 +691,7 @@ fn addStageNote(
             .unprocessable_entity,
             .{
                 .stage_id = stage.id,
-                .note = .{
+                .add_note = .{
                     .body = body,
                     .error_message = validation_errors.body,
                 },
@@ -741,7 +741,8 @@ fn editStageNote(
             .unprocessable_entity,
             .{
                 .stage_id = stage.id,
-                .note = .{
+                .edit_note = .{
+                    .note_id = note.id,
                     .body = body,
                     .error_message = validation_errors.body,
                 },

@@ -180,6 +180,63 @@ test "stage completion skip reopen and scheduled progression" {
     _ = process_id;
 }
 
+test "stage completion and future skip rules are enforced by the domain" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var database = try memoryDb();
+    defer database.close();
+    try migrations.apply(&database);
+    _ = try processes.create(&database, .{
+        .company_name = "Acme",
+        .position_name = "Engineer",
+    });
+
+    const first_id = try database.scalarInt("SELECT id FROM stages WHERE position=1");
+    const second_id = try database.scalarInt("SELECT id FROM stages WHERE position=2");
+    const third_id = try database.scalarInt("SELECT id FROM stages WHERE position=3");
+    const fourth_id = try database.scalarInt("SELECT id FROM stages WHERE position=4");
+    const fifth_id = try database.scalarInt("SELECT id FROM stages WHERE position=5");
+    const sixth_id = try database.scalarInt("SELECT id FROM stages WHERE position=6");
+
+    _ = try stages.complete(allocator, &database, first_id);
+    try std.testing.expectError(
+        error.InvalidTransition,
+        stages.complete(allocator, &database, first_id),
+    );
+    try database.exec("UPDATE stages SET status='scheduled' WHERE position=2;");
+    _ = try stages.complete(allocator, &database, second_id);
+    try std.testing.expectEqual(
+        third_id,
+        try database.scalarInt("SELECT current_stage_id FROM job_processes"),
+    );
+
+    try std.testing.expectError(
+        error.InvalidTransition,
+        stages.complete(allocator, &database, fifth_id),
+    );
+    try database.exec("UPDATE stages SET status='scheduled' WHERE position=4;");
+    try std.testing.expectError(
+        error.InvalidTransition,
+        stages.complete(allocator, &database, fourth_id),
+    );
+    try database.exec("UPDATE stages SET status='skipped' WHERE position=6;");
+    try std.testing.expectError(
+        error.InvalidTransition,
+        stages.complete(allocator, &database, sixth_id),
+    );
+
+    _ = try stages.skip(allocator, &database, fifth_id);
+    try std.testing.expectEqual(
+        third_id,
+        try database.scalarInt("SELECT current_stage_id FROM job_processes"),
+    );
+    try std.testing.expectEqual(
+        @as(i64, 1),
+        try database.scalarInt("SELECT count(*) FROM stages WHERE position=5 AND status='skipped'"),
+    );
+}
+
 test "notes enforce ownership and retain escaped rendering input" {
     var database = try memoryDb();
     defer database.close();
@@ -264,9 +321,13 @@ test "appointments validate schedule current stages and retain cancellation" {
         @as(i64, 1),
         try database.scalarInt("SELECT count(*) FROM appointments WHERE status='cancelled'"),
     );
+    try std.testing.expectError(
+        error.InvalidTransition,
+        appointments.cancel(allocator, &database, appointment_id),
+    );
 
     try database.exec("UPDATE stages SET status='completed' WHERE id=(SELECT current_stage_id FROM job_processes);");
-    _ = try appointments.create(
+    const completed_appointment_id = try appointments.create(
         allocator,
         &database,
         stage_id,
@@ -275,6 +336,15 @@ test "appointments validate schedule current stages and retain cancellation" {
     try std.testing.expectEqual(
         @as(i64, 1),
         try database.scalarInt("SELECT count(*) FROM stages WHERE id=(SELECT current_stage_id FROM job_processes) AND status='completed'"),
+    );
+    try database.exec("UPDATE appointments SET status='completed' WHERE id=2;");
+    try std.testing.expectError(
+        error.InvalidTransition,
+        appointments.cancel(
+            allocator,
+            &database,
+            completed_appointment_id,
+        ),
     );
     _ = process_id;
 }

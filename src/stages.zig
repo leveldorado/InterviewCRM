@@ -226,8 +226,21 @@ fn transition(
     try database.begin();
     errdefer database.rollback() catch {};
     const stage = (try get(allocator, database, stage_id)) orelse return error.NotFound;
-    if (stage.status == destination) return error.InvalidTransition;
-    if (stage.status == .completed or stage.status == .skipped or stage.status == .cancelled) {
+    const current_stage_id = block: {
+        var current = try database.prepare(
+            "SELECT current_stage_id FROM job_processes WHERE id=?",
+        );
+        defer current.deinit();
+        try current.int(1, stage.process_id);
+        if (!try current.step()) return error.NotFound;
+        break :block current.colOptionalInt(0);
+    };
+    const transition_is_allowed = switch (destination) {
+        .completed => canComplete(stage, current_stage_id),
+        .skipped => canSkip(stage, current_stage_id),
+        else => false,
+    };
+    if (!transition_is_allowed) {
         return error.InvalidTransition;
     }
 
@@ -239,13 +252,7 @@ fn transition(
     try update_stage.int(2, stage_id);
     _ = try update_stage.step();
 
-    var current = try database.prepare(
-        "SELECT current_stage_id FROM job_processes WHERE id=?",
-    );
-    defer current.deinit();
-    try current.int(1, stage.process_id);
-    if (!try current.step()) return error.NotFound;
-    if (current.colOptionalInt(0) == stage_id) {
+    if (current_stage_id == stage_id) {
         try advance(database, stage);
     }
 
@@ -262,6 +269,19 @@ fn transition(
     try addActivity(database, stage.process_id, activity_type, description);
     try database.commit();
     return stage.process_id;
+}
+
+fn canComplete(stage: Stage, current_stage_id: ?i64) bool {
+    const is_current = current_stage_id == stage.id;
+    return is_current and
+        (stage.status == .in_progress or stage.status == .scheduled);
+}
+
+fn canSkip(stage: Stage, current_stage_id: ?i64) bool {
+    if (stage.status == .planned) return true;
+    const is_current = current_stage_id == stage.id;
+    return is_current and
+        (stage.status == .in_progress or stage.status == .scheduled);
 }
 
 fn advance(database: *db.Database, stage: Stage) !void {

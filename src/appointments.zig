@@ -154,7 +154,7 @@ pub fn cancel(
     errdefer database.rollback() catch {};
     const appointment = (try get(allocator, database, appointment_id)) orelse
         return error.NotFound;
-    if (appointment.status == .cancelled) return error.InvalidTransition;
+    if (appointment.status != .scheduled) return error.InvalidTransition;
 
     var statement = try database.prepare(
         "UPDATE appointments SET status='cancelled',updated_at=datetime('now') WHERE id=?",

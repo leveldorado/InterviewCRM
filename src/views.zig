@@ -169,11 +169,22 @@ pub fn buildStageCardView(
         stored_notes.len,
     );
     for (stored_notes, note_views) |note, *note_view| {
+        const edit_state = form_state.edit_note;
+        const editing_with_error = if (edit_state) |state|
+            state.note_id == note.id and state.error_message != null
+        else
+            false;
         note_view.* = .{
             .id = note.id,
             .body = note.body,
             .edit_action = try actionUrl(allocator, "notes", note.id, "edit"),
             .delete_action = try actionUrl(allocator, "notes", note.id, "delete"),
+            .edit_body = if (editing_with_error) edit_state.?.body else note.body,
+            .edit_error = if (editing_with_error)
+                edit_state.?.error_message
+            else
+                null,
+            .editing_with_error = editing_with_error,
         };
     }
 
@@ -201,7 +212,7 @@ pub fn buildStageCardView(
             .preparation_note = appointment.preparation_note,
             .status = appointments.statusText(appointment.status),
             .status_label = appointmentStatusLabel(appointment.status),
-            .can_cancel = appointment.status != .cancelled,
+            .can_cancel = appointment.status == .scheduled,
             .cancel_action = try actionUrl(
                 allocator,
                 "appointments",
@@ -212,8 +223,8 @@ pub fn buildStageCardView(
     }
 
     const is_form_stage = form_state.stage_id == stage.id;
-    const note_form: view_models.NoteForm = if (is_form_stage)
-        form_state.note
+    const add_note_form: view_models.NoteForm = if (is_form_stage)
+        form_state.add_note
     else
         .{};
     const appointment_form = if (is_form_stage)
@@ -253,7 +264,7 @@ pub fn buildStageCardView(
         ),
         .notes = note_views,
         .appointments = appointment_views,
-        .note_form = note_form,
+        .add_note_form = add_note_form,
         .appointment_form = appointment_form,
     };
 }
@@ -740,4 +751,139 @@ test "error page and fragment are distinct navigable representations" {
     ) != null);
     try std.testing.expect(std.mem.indexOf(u8, fragment, "href=\"/\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, fragment, "<html") == null);
+}
+
+test "note edit validation belongs only to the affected note editor" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var database = try db.Database.open(":memory:");
+    defer database.close();
+    try migrations.apply(&database);
+    const process_id = try processes.create(&database, .{
+        .company_name = "Acme",
+        .position_name = "Engineer",
+    });
+    const process = (try processes.get(allocator, &database, process_id)).?;
+    const stage_id = process.current_stage_id.?;
+    const first_note_id = try notes.createForStage(
+        &database,
+        process_id,
+        stage_id,
+        .{ .body = "First note" },
+    );
+    _ = try notes.createForStage(
+        &database,
+        process_id,
+        stage_id,
+        .{ .body = "Second note" },
+    );
+    const stored_stage = (try stages.get(allocator, &database, stage_id)).?;
+
+    const edit_card = try buildStageCardView(
+        allocator,
+        &database,
+        stored_stage,
+        process.current_stage_id,
+        .{
+            .stage_id = stage_id,
+            .edit_note = .{
+                .note_id = first_note_id,
+                .body = "",
+                .error_message = "Note text is required.",
+            },
+        },
+    );
+    try std.testing.expect(edit_card.notes[0].editing_with_error);
+    try std.testing.expectEqualStrings("", edit_card.notes[0].edit_body);
+    try std.testing.expectEqualStrings(
+        "Note text is required.",
+        edit_card.notes[0].edit_error.?,
+    );
+    try std.testing.expect(!edit_card.notes[1].editing_with_error);
+    try std.testing.expect(edit_card.notes[1].edit_error == null);
+    try std.testing.expectEqualStrings("Second note", edit_card.notes[1].edit_body);
+    try std.testing.expectEqualStrings("", edit_card.add_note_form.body);
+    try std.testing.expect(edit_card.add_note_form.error_message == null);
+
+    var edit_output: std.Io.Writer.Allocating = .init(allocator);
+    try renderStageCardFragment(&edit_output.writer, edit_card);
+    const edit_fragment = edit_output.written();
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        edit_fragment,
+        "id=\"stage-1\"",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(u8, edit_fragment, "<!DOCTYPE html>") == null);
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(u8, edit_fragment, "open=\"open\""),
+    );
+
+    const add_card = try buildStageCardView(
+        allocator,
+        &database,
+        stored_stage,
+        process.current_stage_id,
+        .{
+            .stage_id = stage_id,
+            .add_note = .{
+                .body = "   ",
+                .error_message = "Note text is required.",
+            },
+        },
+    );
+    try std.testing.expectEqualStrings("   ", add_card.add_note_form.body);
+    try std.testing.expect(add_card.add_note_form.error_message != null);
+    try std.testing.expect(!add_card.notes[0].editing_with_error);
+    try std.testing.expect(!add_card.notes[1].editing_with_error);
+
+    try notes.updateStageNote(
+        &database,
+        process_id,
+        stage_id,
+        first_note_id,
+        .{ .body = "Updated first note" },
+    );
+    const updated_note = (try notes.get(allocator, &database, first_note_id)).?;
+    try std.testing.expectEqualStrings("Updated first note", updated_note.body);
+}
+
+test "only scheduled appointments render cancellation actions" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+    var database = try db.Database.open(":memory:");
+    defer database.close();
+    try migrations.apply(&database);
+    const process_id = try processes.create(&database, .{
+        .company_name = "Acme",
+        .position_name = "Engineer",
+    });
+    const process = (try processes.get(allocator, &database, process_id)).?;
+    const stage_id = process.current_stage_id.?;
+    try database.exec(
+        "INSERT INTO appointments(id,process_id,stage_id,title,starts_at,status,created_at,updated_at) VALUES" ++
+            "(1,1,1,'Scheduled','2026-08-12T10:00','scheduled',datetime('now'),datetime('now'))," ++
+            "(2,1,1,'Completed','2026-08-13T10:00','completed',datetime('now'),datetime('now'))," ++
+            "(3,1,1,'Cancelled','2026-08-14T10:00','cancelled',datetime('now'),datetime('now'));",
+    );
+    const stored_stage = (try stages.get(allocator, &database, stage_id)).?;
+    const card = try buildStageCardView(
+        allocator,
+        &database,
+        stored_stage,
+        process.current_stage_id,
+        .{},
+    );
+    try std.testing.expect(card.appointments[0].can_cancel);
+    try std.testing.expect(!card.appointments[1].can_cancel);
+    try std.testing.expect(!card.appointments[2].can_cancel);
+
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    try renderStageCardFragment(&output.writer, card);
+    try std.testing.expectEqual(
+        @as(usize, 1),
+        std.mem.count(u8, output.written(), "Cancel interview"),
+    );
 }

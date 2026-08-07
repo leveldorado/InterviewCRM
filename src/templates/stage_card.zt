@@ -58,7 +58,7 @@ pub templ StageCard(view: view_models.Stage) {
                         <li>
                             <p class="note-body">{note.body}</p>
                             <div class="inline-actions">
-                                <details>
+                                <details open={if (note.editing_with_error) "open" else null}>
                                     <summary>Edit</summary>
                                     <form
                                         method="post"
@@ -69,8 +69,15 @@ pub templ StageCard(view: view_models.Stage) {
                                     >
                                         <label>
                                             Note
-                                            <textarea name="body" rows="4">{note.body}</textarea>
+                                            <textarea
+                                                name="body"
+                                                rows="4"
+                                                class={if (note.edit_error != null) "field-error" else null}
+                                            >{note.edit_body}</textarea>
                                         </label>
+                                        if (note.edit_error) |message| {
+                                            <p class="error">{message}</p>
+                                        }
                                         <button type="submit">Save note</button>
                                     </form>
                                 </details>
@@ -88,7 +95,7 @@ pub templ StageCard(view: view_models.Stage) {
                     }
                 </ul>
             }
-            <details class="inline-form" open={if (view.note_form.error_message != null) "open" else null}>
+            <details class="inline-form" open={if (view.add_note_form.error_message != null) "open" else null}>
                 <summary>Add note</summary>
                 <form
                     method="post"
@@ -102,10 +109,10 @@ pub templ StageCard(view: view_models.Stage) {
                         <textarea
                             name="body"
                             rows="4"
-                            class={if (view.note_form.error_message != null) "field-error" else null}
-                        >{view.note_form.body}</textarea>
+                            class={if (view.add_note_form.error_message != null) "field-error" else null}
+                        >{view.add_note_form.body}</textarea>
                     </label>
-                    if (view.note_form.error_message) |message| {
+                    if (view.add_note_form.error_message) |message| {
                         <p class="error">{message}</p>
                     }
                     <button type="submit">Add note</button>
