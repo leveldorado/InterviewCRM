@@ -1,5 +1,6 @@
 const layout = @import("layout.zig");
 const compensation = @import("compensation.zig");
+const components = @import("components.zig");
 const company_questions = @import("company_questions.zig");
 const stage_timeline = @import("stage_timeline.zig");
 const view_models = @import("../view_models.zig");
@@ -39,17 +40,6 @@ pub templ ProcessDetailContent(view: view_models.ProcessDetail) {
     </section>
 }
 
-pub templ RatingSelect(name: []const u8, value: []const u8) {
-    <select name={name} aria-label={name}>
-        <option value="" selected={if (value.len == 0) "selected" else null}>Not rated</option>
-        <option value="1" selected={if (std.mem.eql(u8, value, "1")) "selected" else null}>1</option>
-        <option value="2" selected={if (std.mem.eql(u8, value, "2")) "selected" else null}>2</option>
-        <option value="3" selected={if (std.mem.eql(u8, value, "3")) "selected" else null}>3</option>
-        <option value="4" selected={if (std.mem.eql(u8, value, "4")) "selected" else null}>4</option>
-        <option value="5" selected={if (std.mem.eql(u8, value, "5")) "selected" else null}>5</option>
-    </select>
-}
-
 pub templ RatingsSection(view: view_models.RatingsSection) {
     if (view.editing) {
         @RatingsEditor(view)
@@ -58,19 +48,26 @@ pub templ RatingsSection(view: view_models.RatingsSection) {
     }
 }
 
-pub templ PencilIcon() {
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16.5-.5 4 4-.5L18.8 8.7l-3.5-3.5L4 16.5Zm9.1-12.1 3.5 3.5 1.1-1.1a2.5 2.5 0 0 0-3.5-3.5l-1.1 1.1Z" fill="currentColor"/></svg>
-}
-
 pub templ RatingsDisplay(view: view_models.RatingsSection) {
     <section id="process-ratings" class="process-ratings editable-region">
-        <h2>My rating</h2>
-        <dl>
-            <dt>Interest</dt><dd>{view.interest}</dd>
-            <dt>Money</dt><dd>{view.money}</dd>
-            <dt>Growth</dt><dd>{view.growth}</dd>
-        </dl>
-        <button type="button" class="edit-trigger" aria-label="Edit ratings" hx-get={view.edit_url} hx-target="#process-ratings" hx-swap="outerHTML">@PencilIcon()</button>
+        <button
+            type="button"
+            class="editable-property ratings-display"
+            aria-label="Edit ratings"
+            hx-get={view.edit_url}
+            hx-target="#process-ratings"
+            hx-swap="outerHTML"
+        >
+            <span class="editable-property-heading">
+                <strong>My rating</strong>
+                <span class="edit-icon">
+                    @components.PencilIcon()
+                </span>
+            </span>
+            <span class="rating-row"><span>Interest</span><strong>{view.interest}</strong></span>
+            <span class="rating-row"><span>Money</span><strong>{view.money}</strong></span>
+            <span class="rating-row"><span>Growth</span><strong>{view.growth}</strong></span>
+        </button>
     </section>
 }
 
@@ -79,9 +76,39 @@ pub templ RatingsEditor(view: view_models.RatingsSection) {
         <h2>My rating</h2>
         <form method="post" action={view.action} hx-post={view.action} hx-target="#process-ratings" hx-swap="outerHTML">
             <div class="form-grid ratings-grid">
-                <label>Interest @RatingSelect("interest_rating", view.interest_value)</label>
-                <label>Money @RatingSelect("money_rating", view.money_value)</label>
-                <label>Growth @RatingSelect("growth_rating", view.growth_value)</label>
+                <label>
+                    Interest
+                    <select name="interest_rating" aria-label="Interest rating">
+                        <option value="" selected={if (view.interest_value.len == 0) "selected" else null}>Not rated</option>
+                        <option value="1" selected={if (std.mem.eql(u8, view.interest_value, "1")) "selected" else null}>1</option>
+                        <option value="2" selected={if (std.mem.eql(u8, view.interest_value, "2")) "selected" else null}>2</option>
+                        <option value="3" selected={if (std.mem.eql(u8, view.interest_value, "3")) "selected" else null}>3</option>
+                        <option value="4" selected={if (std.mem.eql(u8, view.interest_value, "4")) "selected" else null}>4</option>
+                        <option value="5" selected={if (std.mem.eql(u8, view.interest_value, "5")) "selected" else null}>5</option>
+                    </select>
+                </label>
+                <label>
+                    Money
+                    <select name="money_rating" aria-label="Money rating">
+                        <option value="" selected={if (view.money_value.len == 0) "selected" else null}>Not rated</option>
+                        <option value="1" selected={if (std.mem.eql(u8, view.money_value, "1")) "selected" else null}>1</option>
+                        <option value="2" selected={if (std.mem.eql(u8, view.money_value, "2")) "selected" else null}>2</option>
+                        <option value="3" selected={if (std.mem.eql(u8, view.money_value, "3")) "selected" else null}>3</option>
+                        <option value="4" selected={if (std.mem.eql(u8, view.money_value, "4")) "selected" else null}>4</option>
+                        <option value="5" selected={if (std.mem.eql(u8, view.money_value, "5")) "selected" else null}>5</option>
+                    </select>
+                </label>
+                <label>
+                    Growth
+                    <select name="growth_rating" aria-label="Growth rating">
+                        <option value="" selected={if (view.growth_value.len == 0) "selected" else null}>Not rated</option>
+                        <option value="1" selected={if (std.mem.eql(u8, view.growth_value, "1")) "selected" else null}>1</option>
+                        <option value="2" selected={if (std.mem.eql(u8, view.growth_value, "2")) "selected" else null}>2</option>
+                        <option value="3" selected={if (std.mem.eql(u8, view.growth_value, "3")) "selected" else null}>3</option>
+                        <option value="4" selected={if (std.mem.eql(u8, view.growth_value, "4")) "selected" else null}>4</option>
+                        <option value="5" selected={if (std.mem.eql(u8, view.growth_value, "5")) "selected" else null}>5</option>
+                    </select>
+                </label>
             </div>
             <div class="inline-actions"><button type="submit">Save</button><button type="button" class="secondary" hx-get={view.action} hx-target="#process-ratings" hx-swap="outerHTML">Cancel</button></div>
         </form>
@@ -100,9 +127,22 @@ pub templ CompanySummarySection(view: view_models.CompanySummarySection) {
         </section>
     } else {
         <section id="company-summary" class="editable-region">
-            <h3>About</h3>
-            if (view.summary.len > 0) { <p class="preserve-lines">{view.summary}</p> } else { <p class="muted">Not recorded.</p> }
-            <button type="button" class="edit-trigger" aria-label="Edit company summary" hx-get={view.edit_url} hx-target="#company-summary" hx-swap="outerHTML">@PencilIcon()</button>
+            <button
+                type="button"
+                class="editable-property company-summary-display"
+                aria-label="Edit About the company"
+                hx-get={view.edit_url}
+                hx-target="#company-summary"
+                hx-swap="outerHTML"
+            >
+                <span class="editable-property-heading">
+                    <strong>About</strong>
+                    <span class="edit-icon">
+                        @components.PencilIcon()
+                    </span>
+                </span>
+                if (view.summary.len > 0) { <span class="preserve-lines">{view.summary}</span> } else { <span class="muted">Not recorded.</span> }
+            </button>
         </section>
     }
 }

@@ -854,11 +854,38 @@ test "ratings and company summary preserve stable inline-edit regions" {
     defer output.deinit();
     try renderRatingsFragment(&output.writer, ratings);
     try std.testing.expect(std.mem.indexOf(u8, output.written(), "hx-get=\"/processes/1/ratings/edit\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "class=\"editable-property ratings-display\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "id=\"process-ratings\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "<svg") != null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "@PencilIcon") == null);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "&lt;svg") == null);
+    const ratings_editor = try buildRatingsSection(
+        arena.allocator(),
+        process,
+        .{},
+        true,
+    );
+    var editor_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer editor_output.deinit();
+    try renderRatingsFragment(&editor_output.writer, ratings_editor);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        editor_output.written(),
+        "<select name=\"interest_rating\"",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        editor_output.written(),
+        "@components",
+    ) == null);
     var summary_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
     defer summary_output.deinit();
     try renderCompanySummaryFragment(&summary_output.writer, summary);
     try std.testing.expect(std.mem.indexOf(u8, summary_output.written(), "id=\"company-summary\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, summary_output.written(), "class=\"editable-property company-summary-display\"") != null);
     try std.testing.expect(std.mem.indexOf(u8, summary_output.written(), "hx-swap=\"outerHTML\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, summary_output.written(), "<svg") != null);
+    try std.testing.expect(std.mem.indexOf(u8, summary_output.written(), "Job posting") == null);
 }
 
 test "compensation editors appear only in their stage contexts" {
@@ -877,6 +904,12 @@ test "compensation editors appear only in their stage contexts" {
     _ = try stages.add(allocator, &database, process_id, .technical, "");
     _ = try stages.add(allocator, &database, process_id, .offer, "");
     const stored = try stages.listForProcess(allocator, &database, process_id);
+    _ = try notes.createForStage(
+        &database,
+        process_id,
+        stored[0].id,
+        .{ .body = "Recruiter shared the team size." },
+    );
     const current_stage_id = stored[0].id;
     for (stored) |stage| {
         const view = try buildStageCardView(
@@ -909,6 +942,25 @@ test "compensation editors appear only in their stage contexts" {
                 std.mem.indexOf(u8, html, "Edit salary") == null,
             ),
             else => {},
+        }
+        if (stage.kind == .applied) {
+            try std.testing.expect(
+                std.mem.indexOf(u8, html, "class=\"editable-property compensation-display\"") != null,
+            );
+            try std.testing.expect(
+                std.mem.indexOf(u8, html, "hx-get=\"/processes/1/compensations/advertised/edit\"") != null,
+            );
+            try std.testing.expect(
+                std.mem.indexOf(u8, html, "hx-target=\"#compensation-advertised\"") != null,
+            );
+            try std.testing.expect(std.mem.indexOf(u8, html, "<svg") != null);
+            try std.testing.expect(std.mem.indexOf(u8, html, "Edit salary") == null);
+            try std.testing.expect(
+                std.mem.indexOf(u8, html, "class=\"editable-property note-edit-surface\"") != null,
+            );
+            try std.testing.expect(
+                std.mem.indexOf(u8, html, ">Recruiter shared the team size.</span>") != null,
+            );
         }
     }
 }

@@ -107,26 +107,59 @@ input:focus, select:focus, textarea:focus, a:focus, button:focus { outline: 3px 
 .inline-form form, .inline-actions details form { display: grid; gap: 0.65rem; margin-top: 0.75rem; }
 
 /* Editable regions */
-.editable-region { position: relative; }
-.edit-trigger {
-  position: absolute;
-  top: 0;
-  right: 0;
-  display: grid;
-  width: 2rem;
-  height: 2rem;
-  padding: 0;
-  place-items: center;
-  color: #e87522;
+.editable-region { border-radius: 0.4rem; }
+.editable-property {
+  display: block;
+  width: 100%;
+  max-width: 42rem;
+  padding: 0.45rem;
+  color: inherit;
+  font: inherit;
+  font-weight: inherit;
+  text-align: left;
+  cursor: pointer;
   background: transparent;
   border: 0;
-  border-radius: 0.4rem;
-  opacity: 0;
+  border-radius: 0.35rem;
 }
-.edit-trigger svg { width: 1rem; height: 1rem; }
-.editable-region:hover .edit-trigger, .editable-region:focus-within .edit-trigger { opacity: 1; }
-.edit-trigger:hover { background: #fff0e4; }
+.editable-property:hover {
+  color: inherit;
+  background: #fff0e4;
+}
+.editable-property:focus-visible {
+  outline: 3px solid #ffd1ad;
+  outline-offset: 2px;
+}
+.editable-property-heading {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.55rem;
+}
+.edit-icon {
+  display: grid;
+  flex: 0 0 1.5rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  place-items: center;
+  color: #e87522;
+  opacity: 0.35;
+  transition: opacity 120ms ease;
+}
+.pencil-icon { width: 1rem; height: 1rem; }
+.editable-property:hover .edit-icon, .editable-property:focus-visible .edit-icon { opacity: 1; }
 .inline-editor { padding: 0.85rem; margin-top: 0.8rem; background: #fffaf5; border: 1px solid #e5e0d8; border-radius: 0.45rem; }
+
+.ratings-display { display: grid; gap: 0.45rem; }
+.rating-row { display: grid; grid-template-columns: max-content 1fr; gap: 1.25rem; }
+.rating-row > span, .compensation-label { color: #6a6761; font-weight: 650; }
+.company-summary-display > .preserve-lines,
+.company-summary-display > .muted,
+.compensation-display > .muted { display: block; }
+.compensation-display { display: grid; gap: 0.35rem; }
+.compensation-value { font-weight: 700; }
+.note-edit-surface { display: flex; gap: 1rem; align-items: flex-start; justify-content: space-between; min-height: 2rem; }
 
 .salary-range { display: none; }
 .salary-editor:has(input[name="is_range"]:checked) .salary-single { display: none; }
@@ -205,5 +238,5 @@ input:focus, select:focus, textarea:focus, a:focus, button:focus { outline: 3px 
 }
 
 @media (hover: none) {
-  .editable-region .edit-trigger { opacity: 0.65; }
+  .editable-property .edit-icon { opacity: 0.55; }
 }

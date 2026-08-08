@@ -1,4 +1,5 @@
 const view_models = @import("../view_models.zig");
+const components = @import("components.zig");
 
 pub templ CompensationEditor(view: view_models.CompensationSnapshot) {
     if (view.editing) {
@@ -8,18 +9,27 @@ pub templ CompensationEditor(view: view_models.CompensationSnapshot) {
     }
 }
 
-pub templ PencilIcon() {
-    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16.5-.5 4 4-.5L18.8 8.7l-3.5-3.5L4 16.5Zm9.1-12.1 3.5 3.5 1.1-1.1a2.5 2.5 0 0 0-3.5-3.5l-1.1 1.1Z" fill="currentColor"/></svg>
-}
-
 pub templ CompensationDisplay(view: view_models.CompensationSnapshot) {
     <section id={view.region_id} class="stage-section compensation-editor editable-region">
-        <h4>{view.label}</h4>
-        <p class="compensation-value">{view.display}</p>
-        if (view.notes) |notes| {
-            <p class="muted preserve-lines">{notes}</p>
-        }
-        <button type="button" class="edit-trigger" aria-label="Edit compensation" hx-get={view.edit_action} hx-target={view.target_id} hx-swap="outerHTML">@PencilIcon()</button>
+        <button
+            type="button"
+            class="editable-property compensation-display"
+            aria-label="Edit compensation"
+            hx-get={view.edit_action}
+            hx-target={view.target_id}
+            hx-swap="outerHTML"
+        >
+            <span class="editable-property-heading">
+                <strong class="compensation-label">{view.label}</strong>
+                <span class="edit-icon">
+                    @components.PencilIcon()
+                </span>
+            </span>
+            <strong class="compensation-value">{view.display}</strong>
+            if (view.notes) |notes| {
+                <span class="muted preserve-lines">{notes}</span>
+            }
+        </button>
     </section>
 }
 

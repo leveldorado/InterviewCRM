@@ -53,3 +53,22 @@ test "orange favicon is embedded as SVG" {
     try std.testing.expect(std.mem.indexOf(u8, favicon, "#F47A1F") != null);
     try std.testing.expect(std.mem.indexOf(u8, favicon, "#477A45") != null);
 }
+
+test "editable properties override primary button presentation" {
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        css,
+        ".editable-property {",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        css,
+        "background: transparent;",
+    ) != null);
+    try std.testing.expect(std.mem.indexOf(u8, css, "inset: 0;") == null);
+    try std.testing.expect(std.mem.indexOf(
+        u8,
+        css,
+        ".edit-icon {\n  position: absolute;",
+    ) == null);
+}
