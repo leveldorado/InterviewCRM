@@ -106,6 +106,28 @@ input:focus, select:focus, textarea:focus, a:focus, button:focus { outline: 3px 
 .inline-form summary { font-weight: 700; cursor: pointer; }
 .inline-form form, .inline-actions details form { display: grid; gap: 0.65rem; margin-top: 0.75rem; }
 
+/* Editable regions */
+.editable-region { position: relative; }
+.edit-trigger {
+  position: absolute;
+  top: 0;
+  right: 0;
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  place-items: center;
+  color: #e87522;
+  background: transparent;
+  border: 0;
+  border-radius: 0.4rem;
+  opacity: 0;
+}
+.edit-trigger svg { width: 1rem; height: 1rem; }
+.editable-region:hover .edit-trigger, .editable-region:focus-within .edit-trigger { opacity: 1; }
+.edit-trigger:hover { background: #fff0e4; }
+.inline-editor { padding: 0.85rem; margin-top: 0.8rem; background: #fffaf5; border: 1px solid #e5e0d8; border-radius: 0.45rem; }
+
 .salary-range { display: none; }
 .salary-editor:has(input[name="is_range"]:checked) .salary-single { display: none; }
 .salary-editor:has(input[name="is_range"]:checked) .salary-range { display: grid; }
@@ -180,4 +202,8 @@ input:focus, select:focus, textarea:focus, a:focus, button:focus { outline: 3px 
   .dashboard-table td { padding: 0.2rem 0; border: 0; }
   .dashboard-table td::before { display: inline-block; width: 7.5rem; color: #6a6761; font-size: 0.8rem; font-weight: 700; content: attr(data-label); }
   .dashboard-table td:nth-child(4), .dashboard-table td:last-child { display: none; }
+}
+
+@media (hover: none) {
+  .editable-region .edit-trigger { opacity: 0.65; }
 }

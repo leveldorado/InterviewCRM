@@ -50,5 +50,6 @@ test "navigation indicator is positioned without changing header layout" {
 
 test "orange favicon is embedded as SVG" {
     try std.testing.expect(std.mem.startsWith(u8, favicon, "<svg"));
-    try std.testing.expect(std.mem.indexOf(u8, favicon, "#E87522") != null);
+    try std.testing.expect(std.mem.indexOf(u8, favicon, "#F47A1F") != null);
+    try std.testing.expect(std.mem.indexOf(u8, favicon, "#477A45") != null);
 }

@@ -33,9 +33,22 @@ const Route = union(enum) {
     process_detail: i64,
     edit_process: i64,
     update_ratings: i64,
+    ratings_editor: i64,
+    ratings_display: i64,
+    company_summary_editor: i64,
+    company_summary_display: i64,
+    update_company_summary: i64,
     delete_process: i64,
     add_source,
     compensation: struct {
+        process_id: i64,
+        kind: compensations.Kind,
+    },
+    compensation_editor: struct {
+        process_id: i64,
+        kind: compensations.Kind,
+    },
+    compensation_display: struct {
         process_id: i64,
         kind: compensations.Kind,
     },
@@ -45,6 +58,8 @@ const Route = union(enum) {
     reopen_stage: i64,
     add_stage_note: i64,
     edit_note: i64,
+    note_editor: i64,
+    note_display: i64,
     delete_note: i64,
     schedule_appointment: i64,
     cancel_appointment: i64,
@@ -202,6 +217,14 @@ fn handleConnection(
                     database,
                     process_id,
                     form.process,
+                    request_kind,
+                ),
+                .update_company_summary => |process_id| return updateCompanySummary(
+                    allocator,
+                    &request,
+                    database,
+                    process_id,
+                    form.process.company_summary,
                     request_kind,
                 ),
                 .delete_process => |process_id| return deleteProcess(
@@ -423,6 +446,58 @@ fn handleGet(
             process_id,
             request_kind,
         ),
+        .ratings_editor => |process_id| return serveRatingsRegion(
+            allocator,
+            request,
+            database,
+            process_id,
+            true,
+            request_kind,
+        ),
+        .ratings_display => |process_id| return serveRatingsRegion(
+            allocator,
+            request,
+            database,
+            process_id,
+            false,
+            request_kind,
+        ),
+        .company_summary_editor => |process_id| return serveCompanySummaryRegion(
+            allocator,
+            request,
+            database,
+            process_id,
+            true,
+            request_kind,
+        ),
+        .company_summary_display => |process_id| return serveCompanySummaryRegion(
+            allocator,
+            request,
+            database,
+            process_id,
+            false,
+            request_kind,
+        ),
+        .note_editor => |note_id| return serveNoteCard(allocator, request, database, note_id, true, request_kind),
+        .note_display => |note_id| return serveNoteCard(allocator, request, database, note_id, false, request_kind),
+        .compensation_editor => |route_data| return serveCompensationRegion(
+            allocator,
+            request,
+            database,
+            route_data.process_id,
+            route_data.kind,
+            true,
+            request_kind,
+        ),
+        .compensation_display => |route_data| return serveCompensationRegion(
+            allocator,
+            request,
+            database,
+            route_data.process_id,
+            route_data.kind,
+            false,
+            request_kind,
+        ),
         else => {},
     }
     return respondError(
@@ -557,6 +632,43 @@ fn loadProcessOrRespond(
     return null;
 }
 
+fn serveRatingsRegion(allocator: std.mem.Allocator, request: *std.http.Server.Request, database: *db.Database, process_id: i64, editing: bool, request_kind: RequestKind) !void {
+    const process = try loadProcessOrRespond(allocator, request, database, process_id, request_kind) orelse return;
+    if (request_kind == .traditional) return serveProcessDetail(allocator, request, database, process_id, request_kind);
+    const section = try views.buildRatingsSection(allocator, process, .{}, editing);
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    try views.renderRatingsFragment(&output.writer, section);
+    return respondHtml(request, output.written(), .ok, &.{});
+}
+
+fn serveCompanySummaryRegion(allocator: std.mem.Allocator, request: *std.http.Server.Request, database: *db.Database, process_id: i64, editing: bool, request_kind: RequestKind) !void {
+    const process = try loadProcessOrRespond(allocator, request, database, process_id, request_kind) orelse return;
+    if (request_kind == .traditional) return serveProcessDetail(allocator, request, database, process_id, request_kind);
+    const section = try views.buildCompanySummarySection(allocator, process_id, process.input.company_summary, editing, null);
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    try views.renderCompanySummaryFragment(&output.writer, section);
+    return respondHtml(request, output.written(), .ok, &.{});
+}
+
+fn serveCompensationRegion(allocator: std.mem.Allocator, request: *std.http.Server.Request, database: *db.Database, process_id: i64, kind: compensations.Kind, editing: bool, request_kind: RequestKind) !void {
+    if (request_kind == .traditional) return serveProcessDetail(allocator, request, database, process_id, request_kind);
+    const stage = try compensationContextStage(allocator, database, process_id, kind);
+    const card = try views.buildStageCardView(allocator, database, stage, null, .{
+        .editing_compensation = if (editing) kind else null,
+    });
+    const snapshot = card.compensation orelse return error.NotFound;
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    try views.renderCompensationEditorFragment(&output.writer, snapshot);
+    return respondHtml(request, output.written(), .ok, &.{});
+}
+
+fn serveNoteCard(allocator: std.mem.Allocator, request: *std.http.Server.Request, database: *db.Database, note_id: i64, editing: bool, request_kind: RequestKind) !void {
+    const note = (try notes.get(allocator, database, note_id)) orelse return respondError(allocator, request, .not_found, "Not found", "That note does not exist.", request_kind);
+    const stage = (try stages.get(allocator, database, note.stage_id)).?;
+    if (request_kind == .traditional) return serveProcessDetail(allocator, request, database, note.process_id, request_kind);
+    return respondStageCard(allocator, request, database, stage, request_kind, .ok, .{ .stage_id = stage.id, .edit_note = if (editing) .{ .note_id = note_id, .body = note.body } else null });
+}
+
 fn saveProcess(
     allocator: std.mem.Allocator,
     request: *std.http.Server.Request,
@@ -656,6 +768,7 @@ fn updateRatings(
                 allocator,
                 attempted,
                 errors,
+                true,
             );
             var output: std.Io.Writer.Allocating = .init(allocator);
             try views.renderRatingsFragment(&output.writer, section);
@@ -670,9 +783,34 @@ fn updateRatings(
     };
     if (request_kind == .traditional) return redirectToProcess(request, process_id);
     const process = (try processes.get(allocator, database, process_id)).?;
-    const section = try views.buildRatingsSection(allocator, process, .{});
+    const section = try views.buildRatingsSection(allocator, process, .{}, false);
     var output: std.Io.Writer.Allocating = .init(allocator);
     try views.renderRatingsFragment(&output.writer, section);
+    return respondHtml(request, output.written(), .ok, &.{});
+}
+
+fn updateCompanySummary(
+    allocator: std.mem.Allocator,
+    request: *std.http.Server.Request,
+    database: *db.Database,
+    process_id: i64,
+    summary: []const u8,
+    request_kind: RequestKind,
+) !void {
+    processes.updateCompanySummary(database, process_id, summary) catch |err| {
+        if (err == error.NotFound) return respondError(allocator, request, .not_found, "Not found", "That job process does not exist.", request_kind);
+        if (err == error.InvalidInput) {
+            const section = try views.buildCompanySummarySection(allocator, process_id, summary, true, "Company summary must be 5,000 characters or fewer.");
+            var output: std.Io.Writer.Allocating = .init(allocator);
+            try views.renderCompanySummaryFragment(&output.writer, section);
+            return respondHtml(request, output.written(), .unprocessable_entity, &.{});
+        }
+        return err;
+    };
+    if (request_kind == .traditional) return redirectToProcess(request, process_id);
+    const section = try views.buildCompanySummarySection(allocator, process_id, summary, false, null);
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    try views.renderCompanySummaryFragment(&output.writer, section);
     return respondHtml(request, output.written(), .ok, &.{});
 }
 
@@ -1290,20 +1428,17 @@ fn saveCompensation(
         process_id,
         kind,
     );
-    return respondStageCard(
-        allocator,
-        request,
-        database,
-        stage,
-        request_kind,
-        if (validation_errors.any()) .unprocessable_entity else .ok,
-        .{
-            .stage_id = stage.id,
-            .compensation_kind = if (validation_errors.any()) kind else null,
-            .compensation_input = input,
-            .compensation_errors = validation_errors,
-        },
-    );
+    const card = try views.buildStageCardView(allocator, database, stage, null, .{
+        .stage_id = stage.id,
+        .compensation_kind = if (validation_errors.any()) kind else null,
+        .compensation_input = input,
+        .compensation_errors = validation_errors,
+        .editing_compensation = if (validation_errors.any()) kind else null,
+    });
+    const snapshot = card.compensation orelse return error.NotFound;
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    try views.renderCompensationEditorFragment(&output.writer, snapshot);
+    return respondHtml(request, output.written(), if (validation_errors.any()) .unprocessable_entity else .ok, &.{});
 }
 
 fn compensationContextStage(
@@ -1793,11 +1928,29 @@ fn parseRoute(method: std.http.Method, target: []const u8) Route {
     const id = std.fmt.parseInt(i64, id_text, 10) catch return .not_found;
     const action = parts.next();
     const detail = parts.next();
+    const extra = parts.next();
     if (parts.next() != null) return .not_found;
 
     if (std.mem.eql(u8, resource, "processes")) {
         if (action == null and method == .GET) return .{ .process_detail = id };
         if (action) |name| {
+            if (std.mem.eql(u8, name, "ratings")) {
+                if (method == .GET and detail == null and extra == null) return .{ .ratings_display = id };
+                if (method == .GET and std.mem.eql(u8, detail orelse "", "edit") and extra == null) return .{ .ratings_editor = id };
+                if (method == .POST and detail == null and extra == null) return .{ .update_ratings = id };
+            }
+            if (std.mem.eql(u8, name, "company-summary")) {
+                if (method == .GET and detail == null and extra == null) return .{ .company_summary_display = id };
+                if (method == .GET and std.mem.eql(u8, detail orelse "", "edit") and extra == null) return .{ .company_summary_editor = id };
+                if (method == .POST and detail == null and extra == null) return .{ .update_company_summary = id };
+            }
+            if (std.mem.eql(u8, name, "compensations")) {
+                const kind = compensations.parseKind(detail orelse return .not_found) catch return .not_found;
+                if (method == .POST and extra == null) return .{ .compensation = .{ .process_id = id, .kind = kind } };
+                if (method == .GET and extra == null) return .{ .compensation_display = .{ .process_id = id, .kind = kind } };
+                if (method == .GET and std.mem.eql(u8, extra orelse "", "edit")) return .{ .compensation_editor = .{ .process_id = id, .kind = kind } };
+            }
+            if (extra != null) return .not_found;
             if (detail != null) {
                 if (method == .POST and
                     std.mem.eql(u8, name, "compensations"))
@@ -1821,9 +1974,6 @@ fn parseRoute(method: std.http.Method, target: []const u8) Route {
                 (method == .GET or method == .POST))
             {
                 return .{ .edit_process = id };
-            }
-            if (std.mem.eql(u8, name, "ratings") and method == .POST) {
-                return .{ .update_ratings = id };
             }
             if (std.mem.eql(u8, name, "stages") and method == .POST) {
                 return .{ .add_stage = id };
@@ -1856,6 +2006,11 @@ fn parseRoute(method: std.http.Method, target: []const u8) Route {
         const name = action orelse return .not_found;
         if (std.mem.eql(u8, name, "edit")) return .{ .edit_note = id };
         if (std.mem.eql(u8, name, "delete")) return .{ .delete_note = id };
+    }
+    if (std.mem.eql(u8, resource, "notes") and method == .GET) {
+        if (detail != null or extra != null) return .not_found;
+        const name = action orelse return .{ .note_display = id };
+        if (std.mem.eql(u8, name, "edit")) return .{ .note_editor = id };
     }
     if (std.mem.eql(u8, resource, "appointments") and method == .POST) {
         if (detail != null) return .not_found;

@@ -52,6 +52,8 @@ pub const ProcessForm = struct {
 
 pub const RatingsSection = struct {
     action: []const u8,
+    edit_url: []const u8,
+    editing: bool = false,
     interest: []const u8,
     money: []const u8,
     growth: []const u8,
@@ -61,7 +63,18 @@ pub const RatingsSection = struct {
     errors: processes.Errors = .{},
 };
 
+pub const CompanySummarySection = struct {
+    action: []const u8,
+    edit_url: []const u8,
+    summary: []const u8,
+    editing: bool = false,
+    error_message: ?[]const u8 = null,
+};
+
 pub const CompensationSnapshot = struct {
+    region_id: []const u8,
+    target_id: []const u8,
+    edit_action: []const u8,
     kind: []const u8,
     label: []const u8,
     display: []const u8,
@@ -69,6 +82,7 @@ pub const CompensationSnapshot = struct {
     action: []const u8,
     form: CompensationForm,
     show_confirmed: bool,
+    editing: bool = false,
 };
 
 pub const CompensationSection = struct {
@@ -103,7 +117,7 @@ pub const ProcessDetail = struct {
     source: []const u8,
     location: []const u8,
     work_arrangement: []const u8,
-    company_summary: []const u8,
+    company_summary: CompanySummarySection,
     applied_at: []const u8,
     interest: []const u8,
     money: []const u8,
@@ -157,6 +171,7 @@ pub const TimelineFormState = struct {
     compensation_kind: ?compensations.Kind = null,
     compensation_input: compensations.Input = .{},
     compensation_errors: compensations.Errors = .{},
+    editing_compensation: ?compensations.Kind = null,
     learning_question: QuestionForm = .{},
     add_note: NoteForm = .{},
     edit_note: ?NoteEditForm = null,
@@ -166,11 +181,13 @@ pub const TimelineFormState = struct {
 pub const StageNote = struct {
     id: i64,
     body: []const u8,
+    editor_url: []const u8,
+    display_url: []const u8,
     edit_action: []const u8,
     delete_action: []const u8,
     edit_body: []const u8,
     edit_error: ?[]const u8,
-    editing_with_error: bool,
+    editing: bool,
 };
 
 pub const StageAppointment = struct {
@@ -215,6 +232,7 @@ pub const Stage = struct {
     schedule_action: []const u8,
     notes: []const StageNote,
     appointments: []const StageAppointment,
+    show_interviews: bool,
     learning_questions: []const Question,
     show_learning_questions: bool,
     add_learning_question_action: []const u8,

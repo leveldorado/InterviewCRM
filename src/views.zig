@@ -134,7 +134,13 @@ pub fn buildProcessDetail(
         .source = process.input.source_name,
         .location = process.input.location,
         .work_arrangement = process.input.work_arrangement,
-        .company_summary = process.input.company_summary,
+        .company_summary = try buildCompanySummarySection(
+            allocator,
+            process.id,
+            process.input.company_summary,
+            false,
+            null,
+        ),
         .applied_at = process.input.applied_at,
         .interest = try ratingDisplay(allocator, process.input.interest_rating, "★"),
         .money = try ratingDisplay(allocator, process.input.money_rating, "$"),
@@ -151,7 +157,7 @@ pub fn buildProcessDetail(
             null,
             .{},
         ),
-        .ratings = try buildRatingsSection(allocator, process, .{}),
+        .ratings = try buildRatingsSection(allocator, process, .{}, false),
         .timeline = try buildStageTimelineView(
             allocator,
             database,
@@ -174,6 +180,7 @@ pub fn buildRatingsSection(
     allocator: std.mem.Allocator,
     process: processes.Process,
     errors: processes.Errors,
+    editing: bool,
 ) !view_models.RatingsSection {
     return .{
         .action = try std.fmt.allocPrint(
@@ -181,6 +188,12 @@ pub fn buildRatingsSection(
             "/processes/{d}/ratings",
             .{process.id},
         ),
+        .edit_url = try std.fmt.allocPrint(
+            allocator,
+            "/processes/{d}/ratings/edit",
+            .{process.id},
+        ),
+        .editing = editing,
         .interest = try ratingLabel(allocator, process.input.interest_rating),
         .money = try ratingLabel(allocator, process.input.money_rating),
         .growth = try ratingLabel(allocator, process.input.growth_rating),
@@ -197,6 +210,31 @@ pub fn buildRatingsSection(
             process.input.growth_rating,
         ),
         .errors = errors,
+    };
+}
+
+pub fn buildCompanySummarySection(
+    allocator: std.mem.Allocator,
+    process_id: i64,
+    summary: []const u8,
+    editing: bool,
+    error_message: ?[]const u8,
+) !view_models.CompanySummarySection {
+    const action = try std.fmt.allocPrint(
+        allocator,
+        "/processes/{d}/company-summary",
+        .{process_id},
+    );
+    return .{
+        .action = action,
+        .edit_url = try std.fmt.allocPrint(
+            allocator,
+            "/processes/{d}/company-summary/edit",
+            .{process_id},
+        ),
+        .summary = summary,
+        .editing = editing,
+        .error_message = error_message,
     };
 }
 
@@ -226,6 +264,9 @@ pub fn buildCompensationSection(
             errors = compensations.validate(submitted);
         }
         snapshot.* = .{
+            .region_id = try std.fmt.allocPrint(allocator, "compensation-{s}", .{compensations.kindText(kind)}),
+            .target_id = try std.fmt.allocPrint(allocator, "#compensation-{s}", .{compensations.kindText(kind)}),
+            .edit_action = try std.fmt.allocPrint(allocator, "/processes/{d}/compensations/{s}/edit", .{ process_id, compensations.kindText(kind) }),
             .kind = compensations.kindText(kind),
             .label = switch (kind) {
                 .advertised => "Advertised",
@@ -301,18 +342,20 @@ pub fn buildStageCardView(
     );
     for (stored_notes, note_views) |note, *note_view| {
         const edit_state = form_state.edit_note;
-        const editing_with_error = if (edit_state) |state|
-            state.note_id == note.id and state.error_message != null
+        const editing = if (edit_state) |state|
+            state.note_id == note.id
         else
             false;
         note_view.* = .{
             .id = note.id,
             .body = note.body,
+            .editor_url = try actionUrl(allocator, "notes", note.id, "edit"),
+            .display_url = try std.fmt.allocPrint(allocator, "/notes/{d}", .{note.id}),
             .edit_action = try actionUrl(allocator, "notes", note.id, "edit"),
             .delete_action = try actionUrl(allocator, "notes", note.id, "delete"),
-            .edit_body = if (editing_with_error) edit_state.?.body else note.body,
-            .edit_error = if (editing_with_error) edit_state.?.error_message else null,
-            .editing_with_error = editing_with_error,
+            .edit_body = if (editing) edit_state.?.body else note.body,
+            .edit_error = if (editing) edit_state.?.error_message else null,
+            .editing = editing,
         };
     }
 
@@ -396,6 +439,7 @@ pub fn buildStageCardView(
         .schedule_action = try actionUrl(allocator, "stages", stage.id, "appointments"),
         .notes = note_views,
         .appointments = appointment_views,
+        .show_interviews = stage.kind != .applied,
         .learning_questions = learning,
         .show_learning_questions = stage.kind == .technical or
             stage.kind == .system_design or stage.kind == .custom or
@@ -452,6 +496,9 @@ fn buildContextCompensation(
             .kind = kind,
         };
     return .{
+        .region_id = try std.fmt.allocPrint(allocator, "compensation-{s}", .{compensations.kindText(kind)}),
+        .target_id = try std.fmt.allocPrint(allocator, "#compensation-{s}", .{compensations.kindText(kind)}),
+        .edit_action = try std.fmt.allocPrint(allocator, "/processes/{d}/compensations/{s}/edit", .{ stage.process_id, compensations.kindText(kind) }),
         .kind = compensations.kindText(kind),
         .label = switch (kind) {
             .advertised => "Salary in job posting",
@@ -476,6 +523,7 @@ fn buildContextCompensation(
             if (has_error) form_state.compensation_errors else .{},
         ),
         .show_confirmed = kind == .discussed,
+        .editing = form_state.editing_compensation == kind,
     };
 }
 
@@ -720,6 +768,9 @@ pub fn renderRatingsFragment(
 ) !void {
     try process_detail_template.RatingsSection.render(.{view}, writer);
 }
+pub fn renderCompanySummaryFragment(writer: *std.Io.Writer, view: view_models.CompanySummarySection) !void {
+    try process_detail_template.CompanySummarySection.render(.{view}, writer);
+}
 pub fn renderStageTimelineFragment(writer: *std.Io.Writer, view: view_models.StageTimeline) !void {
     try stage_timeline_template.StageTimeline.render(.{view}, writer);
 }
@@ -731,6 +782,9 @@ pub fn renderSourceFieldFragment(writer: *std.Io.Writer, view: view_models.Sourc
 }
 pub fn renderCompensationFragment(writer: *std.Io.Writer, view: view_models.CompensationSection) !void {
     try compensation_template.CompensationSection.render(.{view}, writer);
+}
+pub fn renderCompensationEditorFragment(writer: *std.Io.Writer, view: view_models.CompensationSnapshot) !void {
+    try compensation_template.CompensationEditor.render(.{view}, writer);
 }
 pub fn renderCompanyQuestionsFragment(writer: *std.Io.Writer, view: view_models.QuestionSection) !void {
     try company_questions_template.CompanyQuestions.render(.{view}, writer);
@@ -779,6 +833,32 @@ test "new process form is deliberately small" {
     }) |absent| {
         try std.testing.expect(std.mem.indexOf(u8, html, absent) == null);
     }
+}
+
+test "ratings and company summary preserve stable inline-edit regions" {
+    var database = try db.Database.open(":memory:");
+    defer database.close();
+    try migrations.apply(&database);
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const process_id = try processes.create(&database, .{
+        .company_name = "Acme",
+        .position_name = "Engineer",
+        .company_summary = "Original",
+        .applied_at = "2026-08-08",
+    });
+    const process = (try processes.get(arena.allocator(), &database, process_id)).?;
+    const ratings = try buildRatingsSection(arena.allocator(), process, .{}, false);
+    const summary = try buildCompanySummarySection(arena.allocator(), process_id, "Original", false, null);
+    var output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer output.deinit();
+    try renderRatingsFragment(&output.writer, ratings);
+    try std.testing.expect(std.mem.indexOf(u8, output.written(), "hx-get=\"/processes/1/ratings/edit\"") != null);
+    var summary_output: std.Io.Writer.Allocating = .init(std.testing.allocator);
+    defer summary_output.deinit();
+    try renderCompanySummaryFragment(&summary_output.writer, summary);
+    try std.testing.expect(std.mem.indexOf(u8, summary_output.written(), "id=\"company-summary\"") != null);
+    try std.testing.expect(std.mem.indexOf(u8, summary_output.written(), "hx-swap=\"outerHTML\"") != null);
 }
 
 test "compensation editors appear only in their stage contexts" {

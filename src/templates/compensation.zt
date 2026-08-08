@@ -1,15 +1,32 @@
 const view_models = @import("../view_models.zig");
 
 pub templ CompensationEditor(view: view_models.CompensationSnapshot) {
-    <section class="stage-section compensation-editor">
+    if (view.editing) {
+        @CompensationEdit(view)
+    } else {
+        @CompensationDisplay(view)
+    }
+}
+
+pub templ PencilIcon() {
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m4 16.5-.5 4 4-.5L18.8 8.7l-3.5-3.5L4 16.5Zm9.1-12.1 3.5 3.5 1.1-1.1a2.5 2.5 0 0 0-3.5-3.5l-1.1 1.1Z" fill="currentColor"/></svg>
+}
+
+pub templ CompensationDisplay(view: view_models.CompensationSnapshot) {
+    <section id={view.region_id} class="stage-section compensation-editor editable-region">
         <h4>{view.label}</h4>
         <p class="compensation-value">{view.display}</p>
         if (view.notes) |notes| {
             <p class="muted preserve-lines">{notes}</p>
         }
-        <details class="inline-form" open={if (view.form.errors.any()) "open" else null}>
-            <summary>Edit salary</summary>
-            <form method="post" action={view.action} hx-post={view.action} hx-target="closest article" hx-swap="outerHTML">
+        <button type="button" class="edit-trigger" aria-label="Edit compensation" hx-get={view.edit_action} hx-target={view.target_id} hx-swap="outerHTML">@PencilIcon()</button>
+    </section>
+}
+
+pub templ CompensationEdit(view: view_models.CompensationSnapshot) {
+    <section id={view.region_id} class="stage-section compensation-editor inline-editor">
+        <h4>{view.label}</h4>
+        <form method="post" action={view.action} hx-post={view.action} hx-target={view.target_id} hx-swap="outerHTML">
                 <div class="salary-editor">
                     <label class="check salary-range-toggle">
                         <input name="is_range" type="checkbox" value="1" checked={if (view.form.input.amount_max != null) "checked" else null} />
@@ -59,9 +76,8 @@ pub templ CompensationEditor(view: view_models.CompensationSnapshot) {
                     <label class="check"><input name="confirmed" type="checkbox" value="1" checked={if (view.form.input.confirmed) "checked" else null} /> Confirmed</label>
                 }
                 <label>Notes<textarea name="notes" rows="3">{view.form.input.notes}</textarea></label>
-                <button type="submit">Save salary</button>
-            </form>
-        </details>
+                <div class="inline-actions"><button type="submit">Save</button><button type="button" class="secondary" hx-get={view.action} hx-target={view.target_id} hx-swap="outerHTML">Cancel</button></div>
+        </form>
     </section>
 }
 

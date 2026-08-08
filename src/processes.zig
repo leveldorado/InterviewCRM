@@ -137,6 +137,22 @@ pub fn update(database: *db.Database, id: i64, input: Input) !void {
     try database.commit();
 }
 
+pub fn updateCompanySummary(
+    database: *db.Database,
+    id: i64,
+    summary: []const u8,
+) !void {
+    if (summary.len > 5000) return error.InvalidInput;
+    var statement = try database.prepare(
+        "UPDATE job_processes SET company_summary=?, updated_at=datetime('now') WHERE id=?",
+    );
+    defer statement.deinit();
+    try statement.text(1, summary);
+    try statement.int(2, id);
+    _ = try statement.step();
+    if (database.changes() == 0) return error.NotFound;
+}
+
 pub fn delete(database: *db.Database, id: i64) !void {
     var statement = try database.prepare("DELETE FROM job_processes WHERE id=?");
     defer statement.deinit();
