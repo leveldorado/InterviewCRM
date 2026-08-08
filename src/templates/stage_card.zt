@@ -1,3 +1,4 @@
+const compensation = @import("compensation.zig");
 const view_models = @import("../view_models.zig");
 
 pub templ StageCard(view: view_models.Stage) {
@@ -7,6 +8,7 @@ pub templ StageCard(view: view_models.Stage) {
             <div>
                 <h3>{view.name}</h3>
                 <p class="stage-status">{view.status_label}</p>
+                if (view.started_at) |started_at| { <p class="stage-status">{started_at}</p> }
             </div>
         </div>
 
@@ -66,25 +68,8 @@ pub templ StageCard(view: view_models.Stage) {
             if (view.outcome_reason) |reason| { <p class="preserve-lines">{reason}</p> }
         }
 
-        if (view.offer_compensation) |offer| {
-            <section class="stage-section offer-compensation">
-                <h4>Offer compensation</h4>
-                <p>{offer.display}</p>
-                <details class="inline-form">
-                    <summary>Edit offer</summary>
-                    <form method="post" action={offer.action} hx-post={offer.action} hx-target="#compensation-section" hx-swap="outerHTML">
-                        <div class="form-grid">
-                            <label>Minimum<input name="amount_min" inputmode="numeric" value={offer.form.minimum_value} /></label>
-                            <label>Maximum<input name="amount_max" inputmode="numeric" value={offer.form.maximum_value} /></label>
-                            <label>Currency<input name="currency" value={offer.form.input.currency} /></label>
-                            <label>Period<select name="period"><option value="">Not specified</option><option value="hour">Hour</option><option value="month">Month</option><option value="year">Year</option></select></label>
-                            <label>Type<select name="salary_type"><option value="">Not specified</option><option value="gross">Gross</option><option value="net">Net</option></select></label>
-                        </div>
-                        <label>Notes<textarea name="notes" rows="3">{offer.form.input.notes}</textarea></label>
-                        <button type="submit">Save offer</button>
-                    </form>
-                </details>
-            </section>
+        if (view.compensation) |snapshot| {
+            @compensation.CompensationEditor(snapshot)
         }
 
         <section class="stage-section">

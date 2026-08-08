@@ -2,6 +2,7 @@ const std = @import("std");
 
 pub const css = @embedFile("assets/app.css");
 pub const htmx = @embedFile("assets/vendor/htmx.min.js");
+pub const favicon = @embedFile("assets/favicon.svg");
 
 comptime {
     @setEvalBranchQuota(100_000);
@@ -22,7 +23,7 @@ test "navigation indicator is positioned without changing header layout" {
     try std.testing.expect(std.mem.indexOf(
         u8,
         css,
-        "#navigation-indicator {\n  position: absolute;",
+        "#navigation-indicator { position: absolute;",
     ) != null);
     try std.testing.expect(std.mem.indexOf(u8, css, "left: 50%;") != null);
     try std.testing.expect(std.mem.indexOf(
@@ -43,6 +44,11 @@ test "navigation indicator is positioned without changing header layout" {
     try std.testing.expect(std.mem.indexOf(
         u8,
         css,
-        ".htmx-indicator {\n  display: none;",
+        ".htmx-indicator { display: none;",
     ) != null);
+}
+
+test "orange favicon is embedded as SVG" {
+    try std.testing.expect(std.mem.startsWith(u8, favicon, "<svg"));
+    try std.testing.expect(std.mem.indexOf(u8, favicon, "#E87522") != null);
 }

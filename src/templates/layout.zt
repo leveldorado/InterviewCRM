@@ -10,6 +10,7 @@ pub templ Layout(title: []const u8) {
             <meta name="viewport" content="width=device-width, initial-scale=1" />
             <meta name="htmx-config" content={htmx_config} />
             <title>{title} · Interview CRM</title>
+            <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
             <link rel="stylesheet" href="/static/app.css" />
             <script defer src="/static/vendor/htmx.min.js"></script>
         </head>

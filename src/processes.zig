@@ -145,6 +145,45 @@ pub fn delete(database: *db.Database, id: i64) !void {
     if (database.changes() == 0) return error.NotFound;
 }
 
+pub fn updateRatings(
+    database: *db.Database,
+    id: i64,
+    input: Input,
+) !void {
+    var errors = Errors{};
+    validateRating(
+        input.interest_rating,
+        input.interest_rating_invalid,
+        &errors.interest_rating,
+    );
+    validateRating(
+        input.money_rating,
+        input.money_rating_invalid,
+        &errors.money_rating,
+    );
+    validateRating(
+        input.growth_rating,
+        input.growth_rating_invalid,
+        &errors.growth_rating,
+    );
+    if (errors.interest_rating != null or errors.money_rating != null or
+        errors.growth_rating != null)
+    {
+        return error.InvalidInput;
+    }
+    var statement = try database.prepare(
+        \\UPDATE job_processes SET interest_rating=?,money_rating=?,growth_rating=?,
+        \\ updated_at=datetime('now') WHERE id=?
+    );
+    defer statement.deinit();
+    try statement.int(1, input.interest_rating);
+    try statement.int(2, input.money_rating);
+    try statement.int(3, input.growth_rating);
+    try statement.int(4, id);
+    _ = try statement.step();
+    if (database.changes() == 0) return error.NotFound;
+}
+
 pub fn get(
     allocator: std.mem.Allocator,
     database: *db.Database,

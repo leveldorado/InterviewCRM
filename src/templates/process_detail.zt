@@ -1,5 +1,4 @@
 const layout = @import("layout.zig");
-const components = @import("components.zig");
 const compensation = @import("compensation.zig");
 const company_questions = @import("company_questions.zig");
 const stage_timeline = @import("stage_timeline.zig");
@@ -13,32 +12,20 @@ pub templ ProcessDetailContent(view: view_models.ProcessDetail) {
     <section class="panel process-hero">
         <h1>{view.company_name}</h1>
         <h2>{view.position_name}</h2>
-        <p><span class="badge">{view.status}</span> · Applied {view.applied_at}</p>
-        <dl class="facts ratings-facts">
-            @components.Fact("Interest", view.interest)
-            @components.Fact("Money", view.money)
-            @components.Fact("Growth", view.growth)
-        </dl>
-        <h3>About the company</h3>
+        <p class="process-meta"><span class="badge">{view.status}</span> · Applied {view.applied_at}</p>
+        if (view.source.len > 0) { <p class="process-source">{view.source}</p> }
+        @RatingsSection(view.ratings)
+        <h3>About</h3>
         if (view.company_summary.len > 0) {
             <p class="preserve-lines">{view.company_summary}</p>
         } else {
             <p class="muted">Not recorded.</p>
         }
-        <dl class="facts">
-            @components.Fact("Source", view.source)
-            @components.Fact("Location", view.location)
-            @components.Fact("Work arrangement", view.work_arrangement)
-            @components.Fact("Last updated", view.updated_at)
-            <dt>Job posting</dt>
-            <dd>
-                if (view.job_url) |job_url| {
-                    <a rel="noopener noreferrer" href={job_url} hx-boost="false">{job_url}</a>
-                } else {
-                    —
-                }
-            </dd>
-        </dl>
+        <div class="process-secondary">
+            if (view.job_url) |job_url| { <a rel="noopener noreferrer" href={job_url} hx-boost="false">Job posting</a> }
+            if (view.location.len > 0) { <span>{view.location}</span> }
+            if (view.work_arrangement.len > 0) { <span>{view.work_arrangement}</span> }
+        </div>
     </section>
     @compensation.CompensationSection(view.compensation)
     @stage_timeline.StageTimeline(view.timeline)
@@ -54,6 +41,39 @@ pub templ ProcessDetailContent(view: view_models.ProcessDetail) {
         >
             <button class="danger" type="submit">Delete job process</button>
         </form>
+    </section>
+}
+
+templ RatingSelect(name: []const u8, value: []const u8) {
+    <select name={name} aria-label={name}>
+        <option value="" selected={if (value.len == 0) "selected" else null}>Not rated</option>
+        <option value="1" selected={if (std.mem.eql(u8, value, "1")) "selected" else null}>1</option>
+        <option value="2" selected={if (std.mem.eql(u8, value, "2")) "selected" else null}>2</option>
+        <option value="3" selected={if (std.mem.eql(u8, value, "3")) "selected" else null}>3</option>
+        <option value="4" selected={if (std.mem.eql(u8, value, "4")) "selected" else null}>4</option>
+        <option value="5" selected={if (std.mem.eql(u8, value, "5")) "selected" else null}>5</option>
+    </select>
+}
+
+pub templ RatingsSection(view: view_models.RatingsSection) {
+    <section id="process-ratings" class="process-ratings">
+        <h2>My rating</h2>
+        <dl>
+            <dt>Interest</dt><dd>{view.interest}</dd>
+            <dt>Money</dt><dd>{view.money}</dd>
+            <dt>Growth</dt><dd>{view.growth}</dd>
+        </dl>
+        <details class="inline-form" open={if (view.errors.interest_rating != null or view.errors.money_rating != null or view.errors.growth_rating != null) "open" else null}>
+            <summary>Edit ratings</summary>
+            <form method="post" action={view.action} hx-post={view.action} hx-target="#process-ratings" hx-swap="outerHTML">
+                <div class="form-grid ratings-grid">
+                    <label>Interest @RatingSelect("interest_rating", view.interest_value)</label>
+                    <label>Money @RatingSelect("money_rating", view.money_value)</label>
+                    <label>Growth @RatingSelect("growth_rating", view.growth_value)</label>
+                </div>
+                <button type="submit">Save ratings</button>
+            </form>
+        </details>
     </section>
 }
 

@@ -1,87 +1,78 @@
 const view_models = @import("../view_models.zig");
 
-pub templ CompensationFields(view: view_models.CompensationForm, show_confirmed: bool) {
-    <div class="form-grid">
-        <label>
-            Minimum
-            <input name="amount_min" inputmode="numeric" value={view.minimum_value} />
-            if (view.errors.amount_min) |message| {
-                <span class="error">{message}</span>
-            }
-        </label>
-        <label>
-            Maximum
-            <input name="amount_max" inputmode="numeric" value={view.maximum_value} />
-            if (view.errors.amount_max) |message| {
-                <span class="error">{message}</span>
-            }
-        </label>
-        <label>
-            Currency
-            <input name="currency" maxlength="12" value={view.input.currency} />
-        </label>
-        <label>
-            Period
-            <select name="period">
-                <option value="" selected={if (view.input.period.len == 0) "selected" else null}>Not specified</option>
-                <option value="hour" selected={if (std.mem.eql(u8, view.input.period, "hour")) "selected" else null}>Hour</option>
-                <option value="month" selected={if (std.mem.eql(u8, view.input.period, "month")) "selected" else null}>Month</option>
-                <option value="year" selected={if (std.mem.eql(u8, view.input.period, "year")) "selected" else null}>Year</option>
-            </select>
-            if (view.errors.period) |message| {
-                <span class="error">{message}</span>
-            }
-        </label>
-        <label>
-            Type
-            <select name="salary_type">
-                <option value="" selected={if (view.input.salary_type.len == 0) "selected" else null}>Not specified</option>
-                <option value="gross" selected={if (std.mem.eql(u8, view.input.salary_type, "gross")) "selected" else null}>Gross</option>
-                <option value="net" selected={if (std.mem.eql(u8, view.input.salary_type, "net")) "selected" else null}>Net</option>
-            </select>
-            if (view.errors.salary_type) |message| {
-                <span class="error">{message}</span>
-            }
-        </label>
-    </div>
-    if (show_confirmed) {
-        <label class="check">
-            <input name="confirmed" type="checkbox" value="1" checked={if (view.input.confirmed) "checked" else null} />
-            Confirmed
-        </label>
-    }
-    <label>
-        Notes
-        <textarea name="notes" rows="3">{view.input.notes}</textarea>
-    </label>
+pub templ CompensationEditor(view: view_models.CompensationSnapshot) {
+    <section class="stage-section compensation-editor">
+        <h4>{view.label}</h4>
+        <p class="compensation-value">{view.display}</p>
+        if (view.notes) |notes| {
+            <p class="muted preserve-lines">{notes}</p>
+        }
+        <details class="inline-form" open={if (view.form.errors.any()) "open" else null}>
+            <summary>Edit salary</summary>
+            <form method="post" action={view.action} hx-post={view.action} hx-target="closest article" hx-swap="outerHTML">
+                <div class="salary-editor">
+                    <label class="check salary-range-toggle">
+                        <input name="is_range" type="checkbox" value="1" checked={if (view.form.input.amount_max != null) "checked" else null} />
+                        Salary is a range
+                    </label>
+                    <div class="salary-single">
+                        <label>
+                            Amount
+                            <input name="amount" inputmode="numeric" value={view.form.minimum_value} />
+                            if (view.form.errors.amount_min) |message| { <span class="error">{message}</span> }
+                        </label>
+                    </div>
+                    <div class="salary-range form-grid">
+                        <label>
+                            From
+                            <input name="amount_from" inputmode="numeric" value={view.form.minimum_value} />
+                            if (view.form.errors.amount_min) |message| { <span class="error">{message}</span> }
+                        </label>
+                        <label>
+                            To
+                            <input name="amount_to" inputmode="numeric" value={view.form.maximum_value} />
+                            if (view.form.errors.amount_max) |message| { <span class="error">{message}</span> }
+                        </label>
+                    </div>
+                </div>
+                <div class="form-grid">
+                    <label>Currency<input name="currency" maxlength="12" value={view.form.input.currency} /></label>
+                    <label>
+                        Period
+                        <select name="period">
+                            <option value="" selected={if (view.form.input.period.len == 0) "selected" else null}>Not specified</option>
+                            <option value="hour" selected={if (std.mem.eql(u8, view.form.input.period, "hour")) "selected" else null}>Hour</option>
+                            <option value="month" selected={if (std.mem.eql(u8, view.form.input.period, "month")) "selected" else null}>Month</option>
+                            <option value="year" selected={if (std.mem.eql(u8, view.form.input.period, "year")) "selected" else null}>Year</option>
+                        </select>
+                    </label>
+                    <label>
+                        Type
+                        <select name="salary_type">
+                            <option value="" selected={if (view.form.input.salary_type.len == 0) "selected" else null}>Not specified</option>
+                            <option value="gross" selected={if (std.mem.eql(u8, view.form.input.salary_type, "gross")) "selected" else null}>Gross</option>
+                            <option value="net" selected={if (std.mem.eql(u8, view.form.input.salary_type, "net")) "selected" else null}>Net</option>
+                        </select>
+                    </label>
+                </div>
+                if (view.show_confirmed) {
+                    <label class="check"><input name="confirmed" type="checkbox" value="1" checked={if (view.form.input.confirmed) "checked" else null} /> Confirmed</label>
+                }
+                <label>Notes<textarea name="notes" rows="3">{view.form.input.notes}</textarea></label>
+                <button type="submit">Save salary</button>
+            </form>
+        </details>
+    </section>
 }
 
 pub templ CompensationSection(view: view_models.CompensationSection) {
-    <section id="compensation-section" class="panel">
+    <section id="compensation-section" class="compensation-summary">
         <h2>Compensation</h2>
-        <div class="compensation-grid">
+        <dl>
             for (view.snapshots) |snapshot| {
-                <article>
-                    <h3>{snapshot.label}</h3>
-                    <p>{snapshot.display}</p>
-                    if (snapshot.notes) |notes| {
-                        <p class="muted">{notes}</p>
-                    }
-                    <details class="inline-form" open={if (snapshot.form.errors.any()) "open" else null}>
-                        <summary>Edit {snapshot.label}</summary>
-                        <form
-                            method="post"
-                            action={snapshot.action}
-                            hx-post={snapshot.action}
-                            hx-target="#compensation-section"
-                            hx-swap="outerHTML"
-                        >
-                            @CompensationFields(snapshot.form, snapshot.show_confirmed)
-                            <button type="submit">Save compensation</button>
-                        </form>
-                    </details>
-                </article>
+                <dt>{if (std.mem.eql(u8, snapshot.kind, "advertised")) "Posted" else snapshot.label}</dt>
+                <dd>{snapshot.display}</dd>
             }
-        </div>
+        </dl>
     </section>
 }

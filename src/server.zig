@@ -32,6 +32,7 @@ const Route = union(enum) {
     create_process,
     process_detail: i64,
     edit_process: i64,
+    update_ratings: i64,
     delete_process: i64,
     add_source,
     compensation: struct {
@@ -53,6 +54,7 @@ const Route = union(enum) {
     delete_question: i64,
     static_css,
     static_htmx,
+    favicon,
     not_found,
 };
 
@@ -67,7 +69,17 @@ const FormData = struct {
     answer: []const u8 = "",
     body: []const u8 = "",
     compensation: compensations.Input = .{},
+    compensation_is_range: bool = false,
+    compensation_amount: AmountValue = .{},
+    compensation_from: AmountValue = .{},
+    compensation_to: AmountValue = .{},
     appointment: appointments.Input = .{},
+};
+
+const AmountValue = struct {
+    text: []const u8 = "",
+    value: ?i64 = null,
+    invalid: bool = false,
 };
 
 pub fn serve(
@@ -183,6 +195,14 @@ fn handleConnection(
                         .process_id = process_id,
                         .request_kind = request_kind,
                     },
+                ),
+                .update_ratings => |process_id| return updateRatings(
+                    allocator,
+                    &request,
+                    database,
+                    process_id,
+                    form.process,
+                    request_kind,
                 ),
                 .delete_process => |process_id| return deleteProcess(
                     allocator,
@@ -372,6 +392,11 @@ fn handleGet(
             assets.htmx,
             "text/javascript; charset=utf-8",
         ),
+        .favicon => return respondAsset(
+            request,
+            assets.favicon,
+            "image/svg+xml",
+        ),
         .dashboard => return serveDashboard(
             allocator,
             request,
@@ -536,9 +561,28 @@ fn saveProcess(
     allocator: std.mem.Allocator,
     request: *std.http.Server.Request,
     database: *db.Database,
-    input: processes.Input,
+    submitted_input: processes.Input,
     options: SaveOptions,
 ) !void {
+    var input = submitted_input;
+    if (options.process_id) |process_id| {
+        const existing = (try processes.get(
+            allocator,
+            database,
+            process_id,
+        )) orelse {
+            return respondError(
+                allocator,
+                request,
+                .not_found,
+                "Not found",
+                "That job process does not exist.",
+                options.request_kind,
+            );
+        };
+        input.advertised = existing.input.advertised;
+        input.discussed = existing.input.discussed;
+    }
     const validation_errors = processes.validate(input);
     if (validation_errors.any()) {
         return respondToValidationFailure(
@@ -575,6 +619,77 @@ fn saveProcess(
         saved_id,
         options.request_kind,
     );
+}
+
+fn updateRatings(
+    allocator: std.mem.Allocator,
+    request: *std.http.Server.Request,
+    database: *db.Database,
+    process_id: i64,
+    input: processes.Input,
+    request_kind: RequestKind,
+) !void {
+    processes.updateRatings(database, process_id, input) catch |err| {
+        if (err == error.NotFound) {
+            return respondError(
+                allocator,
+                request,
+                .not_found,
+                "Not found",
+                "That job process does not exist.",
+                request_kind,
+            );
+        }
+        if (err == error.InvalidInput) {
+            const process = (try processes.get(
+                allocator,
+                database,
+                process_id,
+            )).?;
+            var errors = processes.Errors{};
+            setRatingErrors(input, &errors);
+            var attempted = process;
+            attempted.input.interest_rating = input.interest_rating;
+            attempted.input.money_rating = input.money_rating;
+            attempted.input.growth_rating = input.growth_rating;
+            const section = try views.buildRatingsSection(
+                allocator,
+                attempted,
+                errors,
+            );
+            var output: std.Io.Writer.Allocating = .init(allocator);
+            try views.renderRatingsFragment(&output.writer, section);
+            return respondHtml(
+                request,
+                output.written(),
+                .unprocessable_entity,
+                &.{},
+            );
+        }
+        return err;
+    };
+    if (request_kind == .traditional) return redirectToProcess(request, process_id);
+    const process = (try processes.get(allocator, database, process_id)).?;
+    const section = try views.buildRatingsSection(allocator, process, .{});
+    var output: std.Io.Writer.Allocating = .init(allocator);
+    try views.renderRatingsFragment(&output.writer, section);
+    return respondHtml(request, output.written(), .ok, &.{});
+}
+
+fn setRatingErrors(input: processes.Input, errors: *processes.Errors) void {
+    if (input.interest_rating_invalid or invalidRating(input.interest_rating)) {
+        errors.interest_rating = "Choose a rating from 1 to 5.";
+    }
+    if (input.money_rating_invalid or invalidRating(input.money_rating)) {
+        errors.money_rating = "Choose a rating from 1 to 5.";
+    }
+    if (input.growth_rating_invalid or invalidRating(input.growth_rating)) {
+        errors.growth_rating = "Choose a rating from 1 to 5.";
+    }
+}
+
+fn invalidRating(value: ?i64) bool {
+    return value != null and (value.? < 1 or value.? > 5);
 }
 
 fn respondToValidationFailure(
@@ -1169,21 +1284,44 @@ fn saveCompensation(
     if (request_kind == .traditional and !validation_errors.any()) {
         return redirectToProcess(request, process_id);
     }
-    const section = try views.buildCompensationSection(
+    const stage = try compensationContextStage(
         allocator,
         database,
         process_id,
-        if (validation_errors.any()) kind else null,
-        input,
+        kind,
     );
-    var output: std.Io.Writer.Allocating = .init(allocator);
-    try views.renderCompensationFragment(&output.writer, section);
-    return respondHtml(
+    return respondStageCard(
+        allocator,
         request,
-        output.written(),
+        database,
+        stage,
+        request_kind,
         if (validation_errors.any()) .unprocessable_entity else .ok,
-        &.{},
+        .{
+            .stage_id = stage.id,
+            .compensation_kind = if (validation_errors.any()) kind else null,
+            .compensation_input = input,
+            .compensation_errors = validation_errors,
+        },
     );
+}
+
+fn compensationContextStage(
+    allocator: std.mem.Allocator,
+    database: *db.Database,
+    process_id: i64,
+    kind: compensations.Kind,
+) !stages.Stage {
+    const target_kind: stages.Kind = switch (kind) {
+        .advertised => .applied,
+        .discussed => .hr,
+        .offer => .offer,
+    };
+    const all_stages = try stages.listForProcess(allocator, database, process_id);
+    for (all_stages) |stage| {
+        if (stage.kind == target_kind) return stage;
+    }
+    return error.NotFound;
 }
 
 fn addLearningQuestion(
@@ -1645,6 +1783,9 @@ fn parseRoute(method: std.http.Method, target: []const u8) Route {
     {
         return .static_htmx;
     }
+    if (method == .GET and std.mem.eql(u8, target, "/favicon.svg")) {
+        return .favicon;
+    }
 
     var parts = std.mem.tokenizeScalar(u8, target, '/');
     const resource = parts.next() orelse return .not_found;
@@ -1680,6 +1821,9 @@ fn parseRoute(method: std.http.Method, target: []const u8) Route {
                 (method == .GET or method == .POST))
             {
                 return .{ .edit_process = id };
+            }
+            if (std.mem.eql(u8, name, "ratings") and method == .POST) {
+                return .{ .update_ratings = id };
             }
             if (std.mem.eql(u8, name, "stages") and method == .POST) {
                 return .{ .add_stage = id };
@@ -1742,6 +1886,7 @@ fn parseFormData(allocator: std.mem.Allocator, body: []const u8) !FormData {
         const value = try decode(allocator, pair[equals_index + 1 ..]);
         try assignFormValue(&form, key, value);
     }
+    finalizeCompensationInput(&form);
     return form;
 }
 
@@ -1792,7 +1937,7 @@ fn assignFormValue(
     } else if (std.mem.eql(u8, key, "location")) {
         form.process.location = value;
         form.appointment.location = value;
-    } else if (std.mem.eql(u8, key, "work_arrangement")) form.process.work_arrangement = value else if (std.mem.eql(u8, key, "advertised_amount_min")) assignAmount(&form.process.advertised, value, .minimum) else if (std.mem.eql(u8, key, "advertised_amount_max")) assignAmount(&form.process.advertised, value, .maximum) else if (std.mem.eql(u8, key, "advertised_currency")) form.process.advertised.currency = value else if (std.mem.eql(u8, key, "advertised_period")) form.process.advertised.period = value else if (std.mem.eql(u8, key, "advertised_salary_type")) form.process.advertised.salary_type = value else if (std.mem.eql(u8, key, "advertised_notes")) form.process.advertised.notes = value else if (std.mem.eql(u8, key, "discussed_amount_min")) assignAmount(&form.process.discussed, value, .minimum) else if (std.mem.eql(u8, key, "discussed_amount_max")) assignAmount(&form.process.discussed, value, .maximum) else if (std.mem.eql(u8, key, "discussed_currency")) form.process.discussed.currency = value else if (std.mem.eql(u8, key, "discussed_period")) form.process.discussed.period = value else if (std.mem.eql(u8, key, "discussed_salary_type")) form.process.discussed.salary_type = value else if (std.mem.eql(u8, key, "discussed_confirmed")) form.process.discussed.confirmed = true else if (std.mem.eql(u8, key, "discussed_notes")) form.process.discussed.notes = value else if (std.mem.eql(u8, key, "amount_min")) assignAmount(&form.compensation, value, .minimum) else if (std.mem.eql(u8, key, "amount_max")) assignAmount(&form.compensation, value, .maximum) else if (std.mem.eql(u8, key, "currency")) form.compensation.currency = value else if (std.mem.eql(u8, key, "period")) form.compensation.period = value else if (std.mem.eql(u8, key, "salary_type")) form.compensation.salary_type = value else if (std.mem.eql(u8, key, "confirmed")) form.compensation.confirmed = true else if (std.mem.eql(u8, key, "notes")) form.compensation.notes = value;
+    } else if (std.mem.eql(u8, key, "work_arrangement")) form.process.work_arrangement = value else if (std.mem.eql(u8, key, "amount")) assignAmountValue(&form.compensation_amount, value) else if (std.mem.eql(u8, key, "amount_from")) assignAmountValue(&form.compensation_from, value) else if (std.mem.eql(u8, key, "amount_to")) assignAmountValue(&form.compensation_to, value) else if (std.mem.eql(u8, key, "is_range")) form.compensation_is_range = true else if (std.mem.eql(u8, key, "currency")) form.compensation.currency = value else if (std.mem.eql(u8, key, "period")) form.compensation.period = value else if (std.mem.eql(u8, key, "salary_type")) form.compensation.salary_type = value else if (std.mem.eql(u8, key, "confirmed")) form.compensation.confirmed = true else if (std.mem.eql(u8, key, "notes")) form.compensation.notes = value;
 }
 
 const SalaryField = enum {
@@ -1821,6 +1966,33 @@ fn assignAmount(
             input.amount_max = parsed;
             input.amount_max_invalid = invalid;
         },
+    }
+}
+
+fn assignAmountValue(target: *AmountValue, value: []const u8) void {
+    target.* = .{
+        .text = value,
+        .value = if (value.len == 0)
+            null
+        else
+            std.fmt.parseInt(i64, value, 10) catch null,
+        .invalid = value.len > 0 and
+            (std.fmt.parseInt(i64, value, 10) catch null) == null,
+    };
+}
+
+fn finalizeCompensationInput(form: *FormData) void {
+    const minimum = if (form.compensation_is_range)
+        form.compensation_from
+    else
+        form.compensation_amount;
+    form.compensation.amount_min = minimum.value;
+    form.compensation.amount_min_text = minimum.text;
+    form.compensation.amount_min_invalid = minimum.invalid;
+    if (form.compensation_is_range) {
+        form.compensation.amount_max = form.compensation_to.value;
+        form.compensation.amount_max_text = form.compensation_to.text;
+        form.compensation.amount_max_invalid = form.compensation_to.invalid;
     }
 }
 
@@ -1922,6 +2094,7 @@ test "workflow routes parse explicitly" {
         parseRoute(.POST, "/appointments/10/cancel").cancel_appointment,
     );
     try std.testing.expect(parseRoute(.POST, "/sources") == .add_source);
+    try std.testing.expect(parseRoute(.GET, "/favicon.svg") == .favicon);
     try std.testing.expectEqual(
         @as(i64, 11),
         parseRoute(.POST, "/processes/11/delete").delete_process,
@@ -1986,6 +2159,37 @@ test "Job Model V2 form data preserves typed values" {
     try std.testing.expectEqualStrings("Role changed", form.reason);
     try std.testing.expectEqualStrings("Why?", form.question);
     try std.testing.expectEqualStrings("Growth", form.answer);
+}
+
+test "salary editor parses a single amount and a range" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const single = try parseFormData(
+        arena.allocator(),
+        "amount=5500&currency=EUR&period=month",
+    );
+    try std.testing.expectEqual(@as(?i64, 5500), single.compensation.amount_min);
+    try std.testing.expectEqual(@as(?i64, null), single.compensation.amount_max);
+
+    const range = try parseFormData(
+        arena.allocator(),
+        "amount=ignored&amount_from=5500&amount_to=6500&is_range=1",
+    );
+    try std.testing.expectEqual(@as(?i64, 5500), range.compensation.amount_min);
+    try std.testing.expectEqual(@as(?i64, 6500), range.compensation.amount_max);
+}
+
+test "salary editor preserves invalid selected range values" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const form = try parseFormData(
+        arena.allocator(),
+        "amount_from=wrong&amount_to=100&is_range=1",
+    );
+    const errors = compensations.validate(form.compensation);
+    try std.testing.expect(form.compensation.amount_min_invalid);
+    try std.testing.expectEqualStrings("wrong", form.compensation.amount_min_text);
+    try std.testing.expect(errors.amount_min != null);
 }
 
 test "exact local and configured hosts are allowed" {

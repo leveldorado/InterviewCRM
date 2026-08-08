@@ -47,11 +47,18 @@ pub const ProcessForm = struct {
     input: processes.Input,
     errors: processes.Errors,
     source_field: SourceField,
+    is_editing: bool,
+};
+
+pub const RatingsSection = struct {
+    action: []const u8,
+    interest: []const u8,
+    money: []const u8,
+    growth: []const u8,
     interest_value: []const u8,
     money_value: []const u8,
     growth_value: []const u8,
-    advertised: CompensationForm,
-    discussed: CompensationForm,
+    errors: processes.Errors = .{},
 };
 
 pub const CompensationSnapshot = struct {
@@ -104,6 +111,7 @@ pub const ProcessDetail = struct {
     job_url: ?[]const u8,
     updated_at: []const u8,
     compensation: CompensationSection,
+    ratings: RatingsSection,
     timeline: StageTimeline,
     company_questions: QuestionSection,
 };
@@ -146,6 +154,9 @@ pub const TimelineFormState = struct {
     add_stage: AddStageForm = .{},
     stage_id: ?i64 = null,
     outcome: OutcomeForm = .{},
+    compensation_kind: ?compensations.Kind = null,
+    compensation_input: compensations.Input = .{},
+    compensation_errors: compensations.Errors = .{},
     learning_question: QuestionForm = .{},
     add_note: NoteForm = .{},
     edit_note: ?NoteEditForm = null,
@@ -185,6 +196,7 @@ pub const Stage = struct {
     position: i64,
     status: []const u8,
     status_label: []const u8,
+    started_at: ?[]const u8,
     outcome: ?[]const u8,
     outcome_reason: ?[]const u8,
     marker: []const u8,
@@ -192,7 +204,7 @@ pub const Stage = struct {
     is_current: bool,
     can_set_outcome: bool,
     is_offer: bool,
-    offer_compensation: ?CompensationSnapshot,
+    compensation: ?CompensationSnapshot,
     can_skip: bool,
     can_reopen: bool,
     outcome_action: []const u8,

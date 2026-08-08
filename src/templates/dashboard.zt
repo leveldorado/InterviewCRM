@@ -3,14 +3,16 @@ const components = @import("components.zig");
 const view_models = @import("../view_models.zig");
 
 pub templ DashboardContent(view: view_models.Dashboard) {
-    <div class="actions"><h1>Dashboard</h1></div>
+    <div class="actions">
+        <h1>Dashboard</h1>
+    </div>
     <section class="panel">
         <h2>Active processes</h2>
         if (view.processes.len == 0) {
             @components.EmptyState("No active processes yet. Add one to begin tracking your search.")
         } else {
             <div class="table-wrap">
-                <table>
+                <table class="dashboard-table">
                     <thead>
                         <tr>
                             <th>Company / Role</th>
@@ -27,15 +29,15 @@ pub templ DashboardContent(view: view_models.Dashboard) {
                     <tbody>
                         for (view.processes) |process| {
                             <tr>
-                                <td><a href={process.detail_url}>{process.company_name}<br /><small>{process.position_name}</small></a></td>
-                                <td><span class="badge">{process.status}</span></td>
-                                <td>{process.current_stage}</td>
-                                <td>{process.source}</td>
-                                <td>{process.interest}</td>
-                                <td>{process.money}</td>
-                                <td>{process.growth}</td>
-                                <td>{process.applied_at}</td>
-                                <td>{process.updated_at}</td>
+                                <td data-label="Company / Role"><a href={process.detail_url}>{process.company_name}<br /><small>{process.position_name}</small></a></td>
+                                <td data-label="Status"><span class="badge">{process.status}</span></td>
+                                <td data-label="Current stage">{process.current_stage}</td>
+                                <td data-label="Source">{process.source}</td>
+                                <td data-label="Interest">{process.interest}</td>
+                                <td data-label="Money">{process.money}</td>
+                                <td data-label="Growth">{process.growth}</td>
+                                <td data-label="Applied">{process.applied_at}</td>
+                                <td data-label="Updated">{process.updated_at}</td>
                             </tr>
                         }
                     </tbody>
